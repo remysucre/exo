@@ -21,9 +21,9 @@ sites = {
   -- CS Monitor Front Page
   -- Pattern matches exactly the text edition front page
   {
-    name = "CS Monitor Front Page",
-    pattern = "^https?://www%.csmonitor%.com/text_edition$",
-    xpath = "//h2 | //a[contains(@href, 'text_edition')] | //p"
+    name = "Remy's Homepage",
+    pattern = "^https?://remy%.wang",
+    xpath = "//h1 | //p"
   },
 
   -- Add more sites here following the same pattern
