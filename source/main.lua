@@ -384,7 +384,7 @@ end)
 function playdate.AButtonDown()
     -- Cycle through test URLs
     local testURLs = {
-        "http://info.cern.ch/"
+        "https://info.cern.ch/hypertext/WWW/TheProject.html"
     }
 
     local currentIndex = 1

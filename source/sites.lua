@@ -19,7 +19,7 @@ sites = {
   -- CERN (first website)
   {
     name = "CERN Info",
-    pattern = "^https?://info%.cern%.ch/?$",
+    pattern = "^https?://info%.cern%.ch/.*",
     xpath = "//h1 | //h2 | //p | //ul/li | //a"
   },
 
