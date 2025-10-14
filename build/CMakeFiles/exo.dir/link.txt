@@ -1,0 +1,1 @@
+/Library/Developer/CommandLineTools/usr/bin/cc  -arch arm64 -arch x86_64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -dynamiclib -Wl,-headerpad_max_install_names -o pdex.dylib -install_name @rpath/pdex.dylib CMakeFiles/exo.dir/lib/htmlparser.c.o  /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/lib/libxml2.tbd 
