@@ -342,9 +342,8 @@ end
 statusMessage = "exo browser - Press A to load test page"
 
 function playdate.AButtonDown()
-    -- For testing: try a simple HTTP endpoint
+    -- For testing: try HTTPS to verify SSL works
     -- Can't call loadURL directly from button handler due to yield restrictions
-    -- Using a simple test URL to verify networking works
-    pendingURL = "http://example.com"
+    pendingURL = "https://example.com"
     statusMessage = "Queued URL for loading..."
 end
