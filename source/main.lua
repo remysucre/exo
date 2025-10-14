@@ -11,16 +11,33 @@ local sites = import "sites"
 local currentURL = nil
 local currentContent = nil
 local scrollOffset = 0
-local statusMessage = "exo browser ready"
+local statusMessage = "Connecting to WiFi..."
 local pendingURL = nil  -- URL to load in next update
+
+-- Network state
+local networkReady = false
+
+-- Fetch state (async networking)
+local fetchState = nil  -- nil, "fetching", "done", "error"
+local fetchConn = nil
+local fetchHTML = ""
+local fetchError = nil
+local fetchURL = nil
+local fetchSite = nil
 
 -- Load the parseHTML function from C extension
 -- This will be registered by the C code
 -- parseHTML(html_string, xpath_query) -> {{type="h1", content="..."}, ...}
 
 function loadURL(url)
+    -- Check if network is ready
+    if not networkReady then
+        statusMessage = "Waiting for network..."
+        pendingURL = url  -- Re-queue it
+        return
+    end
+
     statusMessage = "Loading: " .. url
-    currentURL = url
     scrollOffset = 0
 
     -- Find matching site configuration
@@ -40,45 +57,28 @@ function loadURL(url)
 
     statusMessage = "Matched: " .. matchedSite.name
 
-    -- Fetch HTML content
-    local html = fetchHTML(url)
-    if not html then
-        statusMessage = "Error: Failed to fetch page"
-        currentContent = nil
-        return
-    end
+    -- Start async fetch
+    fetchURL = url
+    fetchSite = matchedSite
+    fetchHTML = ""
+    fetchError = nil
+    fetchState = "fetching"
 
-    -- Parse HTML with XPath (returns JSON string)
-    local jsonString, err = parseHTML(html, matchedSite.xpath)
-    if not jsonString then
-        statusMessage = "Error: " .. (err or "Parse failed")
-        currentContent = nil
-        return
-    end
-
-    -- Parse JSON
-    local content = json.decode(jsonString)
-    if not content then
-        statusMessage = "Error: Failed to parse JSON"
-        currentContent = nil
-        return
-    end
-
-    currentContent = content
-    statusMessage = "Loaded " .. #content .. " elements"
+    fetchHTMLAsync(url)
 end
 
-function fetchHTML(url)
-    -- HTTP fetch using Playdate's networking API
+function fetchHTMLAsync(url)
+    -- HTTP fetch using Playdate's networking API (async, no blocking)
     statusMessage = "Fetching HTML..."
-    print("fetchHTML called with URL:", url)
+    print("fetchHTMLAsync called with URL:", url)
 
     -- Parse URL to get server and path
     local server, path = string.match(url, "^https?://([^/]+)(.*)$")
     if not server then
-        statusMessage = "Error: Invalid URL"
+        fetchState = "error"
+        fetchError = "Invalid URL"
         print("Failed to parse URL")
-        return nil
+        return
     end
 
     if path == "" then
@@ -89,29 +89,31 @@ function fetchHTML(url)
     print("Server:", server, "Path:", path, "SSL:", useSSL)
 
     -- Create HTTP connection
-    local conn = playdate.network.http.new(server, nil, useSSL, "exo browser needs to fetch web content")
-    if not conn then
-        statusMessage = "Error: Failed to create connection"
+    fetchConn = playdate.network.http.new(server, nil, useSSL, "exo browser needs to fetch web content")
+    if not fetchConn then
+        fetchState = "error"
+        fetchError = "Failed to create connection"
         print("Failed to create HTTP connection")
-        return nil
+        return
     end
 
     print("HTTP connection created")
 
-    conn:setConnectTimeout(10)
-    conn:setReadTimeout(2)
-
-    local html = ""
-    local headersReceived = false
-    local done = false
+    fetchConn:setConnectTimeout(10)
+    fetchConn:setReadTimeout(2)
 
     -- Callback when headers are received
-    conn:setHeadersReadCallback(function()
+    fetchConn:setHeadersReadCallback(function()
         print("Headers received")
-        headersReceived = true
-        local status = conn:getResponseStatus()
+        local status = fetchConn:getResponseStatus()
         print("Response status:", status)
-        local headers = conn:getResponseHeaders()
+
+        if status == 0 or status >= 400 then
+            fetchState = "error"
+            fetchError = "HTTP error " .. status
+        end
+
+        local headers = fetchConn:getResponseHeaders()
         if headers then
             for k, v in pairs(headers) do
                 print("Header:", k, "=", v)
@@ -119,97 +121,83 @@ function fetchHTML(url)
         end
     end)
 
+    -- Callback when data is available
+    fetchConn:setRequestCallback(function()
+        print("Request callback - data available")
+        local available = fetchConn:getBytesAvailable()
+        if available > 0 then
+            print("Reading", available, "bytes")
+            local data = fetchConn:read(available)
+            if data then
+                print("Read", #data, "bytes")
+                fetchHTML = fetchHTML .. data
+            end
+        end
+    end)
+
     -- Callback when request is complete
-    conn:setRequestCompleteCallback(function()
+    fetchConn:setRequestCompleteCallback(function()
         print("Request complete callback")
 
         -- Read any remaining data
-        while true do
-            local available = conn:getBytesAvailable()
-            if available == 0 then
-                break
-            end
-            print("Reading remaining", available, "bytes")
-            local data = conn:read(available)
+        local available = fetchConn:getBytesAvailable()
+        if available > 0 then
+            print("Reading final", available, "bytes")
+            local data = fetchConn:read(available)
             if data then
                 print("Read", #data, "bytes")
-                html = html .. data
-            else
-                break
+                fetchHTML = fetchHTML .. data
             end
         end
 
-        done = true
+        -- Check for errors
+        local err = fetchConn:getError()
+        if err then
+            print("Connection error:", err)
+            fetchState = "error"
+            fetchError = err
+        elseif #fetchHTML == 0 then
+            print("No data received")
+            fetchState = "error"
+            fetchError = "No data received"
+        else
+            print("Successfully fetched", #fetchHTML, "bytes")
+            fetchState = "done"
+        end
+
+        fetchConn:close()
+        fetchConn = nil
     end)
 
-    conn:setConnectionClosedCallback(function()
+    fetchConn:setConnectionClosedCallback(function()
         print("Connection closed callback")
-        done = true
+        if fetchState == "fetching" then
+            -- Connection closed before completion
+            if #fetchHTML == 0 then
+                fetchState = "error"
+                fetchError = "Connection closed with no data"
+            else
+                fetchState = "done"
+            end
+        end
     end)
 
     -- Start the request
     print("Starting GET request...")
-    local success, err = conn:get(path, {
-        ["User-Agent"] = "exo-browser/1.0 (Playdate)"
+    local success, err = fetchConn:get(path, {
+        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ["Accept-Language"] = "en-US,en;q=0.9"
     })
 
     if not success then
-        statusMessage = "Error: " .. (err or "Request failed")
+        fetchState = "error"
+        fetchError = err or "Request failed"
         print("GET request failed:", err)
-        return nil
+        return
     end
 
     print("GET request queued successfully")
-
-    -- Wait for completion
-    local timeout = 30  -- 30 seconds
-    local startTime = playdate.getCurrentTimeMilliseconds()
-
-    while not done do
-        local elapsed = (playdate.getCurrentTimeMilliseconds() - startTime) / 1000
-        if elapsed > timeout then
-            statusMessage = "Error: Request timeout"
-            print("Request timed out after", elapsed, "seconds")
-            conn:close()
-            return nil
-        end
-
-        -- Read available data
-        if headersReceived then
-            local available = conn:getBytesAvailable()
-            if available > 0 then
-                print("Bytes available:", available)
-                local data = conn:read(available)
-                if data then
-                    print("Read", #data, "bytes")
-                    html = html .. data
-                end
-            end
-        end
-
-        -- Yield to allow callbacks to run
-        coroutine.yield()
-    end
-
-    print("Request completed, closing connection")
-    conn:close()
-
-    -- Check for errors
-    local connError = conn:getError()
-    if connError then
-        statusMessage = "Error: " .. connError
-        print("Connection error:", connError)
-        return nil
-    end
-
-    if #html == 0 then
-        statusMessage = "Error: No data received"
-        print("No data received from server")
-        return nil
-    end
-
-    print("Successfully fetched", #html, "bytes")
-    return html
 end
 
 function renderContent()
@@ -306,11 +294,50 @@ function renderContent()
 end
 
 function playdate.update()
-    -- Handle pending URL load (can't do from button handler due to yield restrictions)
+    -- Handle pending URL load
     if pendingURL then
         local url = pendingURL
         pendingURL = nil
         loadURL(url)
+    end
+
+    -- Handle fetch completion
+    if fetchState == "done" then
+        fetchState = nil
+        statusMessage = "Parsing HTML..."
+
+        -- Parse HTML with XPath (returns JSON string)
+        local jsonString, err = parseHTML(fetchHTML, fetchSite.xpath)
+        if not jsonString then
+            statusMessage = "Error: " .. (err or "Parse failed")
+            currentContent = nil
+        else
+            -- Parse JSON
+            local content = json.decode(jsonString)
+            if not content then
+                statusMessage = "Error: Failed to parse JSON"
+                currentContent = nil
+            else
+                currentContent = content
+                currentURL = fetchURL
+                statusMessage = "Loaded " .. #content .. " elements"
+            end
+        end
+
+        -- Clean up
+        fetchHTML = ""
+        fetchURL = nil
+        fetchSite = nil
+    elseif fetchState == "error" then
+        fetchState = nil
+        statusMessage = "Error: " .. (fetchError or "Unknown error")
+        currentContent = nil
+
+        -- Clean up
+        fetchHTML = ""
+        fetchURL = nil
+        fetchSite = nil
+        fetchError = nil
     end
 
     renderContent()
@@ -337,13 +364,91 @@ function playdate.update()
     end
 end
 
--- Test with a hardcoded URL for now
--- TODO: Add URL entry UI
-statusMessage = "exo browser - Press A to load test page"
+-- Enable networking
+playdate.network.setEnabled(true, function(err)
+    if err then
+        print("Network error:", err)
+        statusMessage = "Network error: " .. err
+        networkReady = false
+    else
+        print("Network enabled")
+        networkReady = true
+        statusMessage = "Network ready - Press A for remy.wang, B for test"
+    end
+end)
+
+-- Test with hardcoded URLs
+-- A button: Try to fetch remy.wang
+-- B button: Load local test HTML
 
 function playdate.AButtonDown()
-    -- For testing: try HTTPS to verify SSL works
-    -- Can't call loadURL directly from button handler due to yield restrictions
-    pendingURL = "https://remy.wang"
-    statusMessage = "Queued URL for loading..."
+    -- Cycle through test URLs
+    local testURLs = {
+        "http://info.cern.ch/"
+    }
+
+    local currentIndex = 1
+    for i, url in ipairs(testURLs) do
+        if pendingURL == url then
+            currentIndex = i % #testURLs + 1
+            break
+        end
+    end
+
+    pendingURL = testURLs[currentIndex]
+    statusMessage = "Queued: " .. pendingURL
+    print("Testing URL:", pendingURL)
+end
+
+function playdate.BButtonDown()
+    -- B button: use local test HTML
+    statusMessage = "Loading test HTML..."
+
+    local testHTML = [[
+<!DOCTYPE html>
+<html>
+<head><title>Test Page</title></head>
+<body>
+    <h1>Welcome to exo browser</h1>
+    <p>This is a test paragraph demonstrating the browser's text rendering capabilities.</p>
+    <h2>Features</h2>
+    <p>The exo browser extracts content using XPath queries and displays it in a readable format on the Playdate.</p>
+    <h2>Architecture</h2>
+    <p>Built with Lua for the UI and C with libxml2 for HTML parsing. Content is extracted using XPath union queries to preserve document order.</p>
+    <p>Scroll with the crank or D-pad to read through content.</p>
+</body>
+</html>
+    ]]
+
+    -- Create a fake URL for pattern matching
+    local fakeURL = "http://example.com"
+
+    -- Find matching site
+    local matchedSite = nil
+    for _, site in ipairs(sites) do
+        if string.match(fakeURL, site.pattern) then
+            matchedSite = site
+            break
+        end
+    end
+
+    if matchedSite then
+        statusMessage = "Parsing test HTML..."
+        local jsonString, err = parseHTML(testHTML, matchedSite.xpath)
+        if jsonString then
+            local content = json.decode(jsonString)
+            if content then
+                currentContent = content
+                currentURL = "test://local"
+                scrollOffset = 0
+                statusMessage = "Loaded " .. #content .. " elements"
+            else
+                statusMessage = "Error: Failed to parse JSON"
+            end
+        else
+            statusMessage = "Error: " .. (err or "Parse failed")
+        end
+    else
+        statusMessage = "Error: No matching rules"
+    end
 end

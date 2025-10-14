@@ -2,6 +2,27 @@
 -- Each entry defines a supported website with URL pattern matching and XPath extraction rules
 
 sites = {
+  -- Google
+  {
+    name = "Google",
+    pattern = "^https?://google%.com/?$",
+    xpath = "//h1 | //h2 | //h3 | //p | //a"
+  },
+
+  -- HTTPBin HTML test page
+  {
+    name = "HTTPBin HTML",
+    pattern = "^https?://httpbin%.org/html$",
+    xpath = "//h1 | //p"
+  },
+
+  -- CERN (first website)
+  {
+    name = "CERN Info",
+    pattern = "^https?://info%.cern%.ch/?$",
+    xpath = "//h1 | //h2 | //p | //ul/li | //a"
+  },
+
   -- Test with example.com
   {
     name = "Example.com Test",
@@ -22,7 +43,7 @@ sites = {
   -- Pattern matches exactly the text edition front page
   {
     name = "Remy's Homepage",
-    pattern = "^https?://remy%.wang",
+    pattern = "^https?://remy%.wang/.*",
     xpath = "//h1 | //p"
   },
 
