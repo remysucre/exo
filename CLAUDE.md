@@ -7,10 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is **exo**, a web browser for the Playdate console. Due to the Playdate's hardware constraints, exo uses a unique "exo web browser" architecture:
 
 - **Curated browsing**: A curated list of supported websites
-- **XPath-based content extraction**: For each supported site, custom rules specify which content to display using XPath queries
+- **CSS selector-based content extraction**: For each supported site, custom rules specify which content to display using CSS selectors
 - **Content filtering philosophy**: Instead of blocking unwanted content, we explicitly specify what to show
 - **Pure content**: Text only, no images, links, or JavaScript
 - **Simplicity first**: Straightforward implementation, optimize only when needed
+- **Pure Lua**: All code written in Lua for easy debugging and portability
 
 ## Hardware Constraints
 
@@ -23,48 +24,38 @@ The Playdate console has:
 
 ## Technology Stack
 
-- **Primary language**: Lua (for UI, navigation, and high-level logic)
-- **Performance-critical code**: C with libxml2 (for HTML parsing with XPath support)
-- **Why C?**: Pure Lua XML parsers lack XPath support, which is essential for our content extraction design
+- **Pure Lua**: All code written in Lua (UI, navigation, HTML parsing, rendering)
+- **lua-htmlparser**: Pure Lua HTML parser (https://github.com/msva/lua-htmlparser)
+- **No compilation**: Edit Lua files and rebuild .pdx instantly with `pdc`
 - **No large dependencies**: Must work within Playdate's constraints
 
 ## Build System
 
 ### Prerequisites
 - Playdate SDK installed with `PLAYDATE_SDK_PATH` environment variable set
-- C compiler for Simulator builds:
-  - macOS: Xcode command line tools
-  - Windows: Visual Studio
-  - Linux: gcc
-- ARM embedded compiler for device builds (included with Playdate SDK)
-- libxml2 development libraries
+- That's it! No compilers, no build tools required
 
 ### Project Structure
 ```
 exo/
   source/
-    main.lua          # Entry point
-    sites.lua         # Site configuration rules
-    images/           # UI assets (optional)
-    sounds/           # Audio feedback (optional)
-  lib/                # C extensions
-    htmlparser.c      # libxml2 wrapper for XPath queries
-  CMakeLists.txt      # Build configuration
+    main.lua           # Entry point, rendering, networking
+    sites.lua          # Site configuration rules
+    htmlparser.lua     # HTML parser (lua-htmlparser)
+    ElementNode.lua    # DOM node implementation
+    voidelements.lua   # HTML void elements list
+    pdxinfo            # Playdate metadata
+  CLAUDE.md            # This file
+  README.md            # User documentation
 ```
 
 ### Building
 
-#### C Extension
 ```bash
-mkdir build
-cd build
-cmake ..
-make
-```
+# Set Playdate SDK path
+export PLAYDATE_SDK_PATH=/path/to/PlaydateSDK
 
-#### Playdate Bundle
-```bash
-# Compile to .pdx bundle (includes compiled C library + Lua code)
+# Create .pdx bundle
 pdc source exo.pdx
 
 # Run in Simulator
@@ -79,49 +70,68 @@ PlaydateSimulator exo.pdx
 
 1. **Rule Engine** (Lua)
    - Manages the curated list of supported websites in `sites.lua`
-   - Stores XPath rules for each site
+   - Stores CSS selector rules for each site
    - Supports wildcard URL patterns for matching article pages
-   - Format: `{ name, pattern, xpath }`
+   - Format: `{ name, pattern, selector }`
 
 2. **HTTP Client** (Lua)
-   - Fetches HTML content from supported websites
+   - Fetches HTML content from supported websites using Playdate's async networking API
    - Loads entire HTML into memory (simple approach)
-   - Basic error handling
+   - Callbacks for headers, data, completion, and errors
 
-3. **HTML Parser** (C using libxml2)
-   - Parses HTML documents (uses libxml2's HTML parser, not strict XML)
-   - Applies XPath union queries to extract content in document order
-   - Returns structured list of `{type, content}` tuples to Lua
-   - Exposed to Lua via C API bridge
+3. **HTML Parser** (Lua using lua-htmlparser)
+   - Parses HTML documents (handles malformed HTML gracefully)
+   - Applies CSS selectors to extract content in document order
+   - Returns list of `{type, content}` tables to rendering code
+   - Pure Lua implementation - easy to debug
 
-4. **Renderer** (Lua)
+4. **CSS Selector Engine** (Lua)
+   - Simple implementation in `main.lua`
+   - Supports:
+     - Tag selectors: `h1`, `p`, `h2`
+     - Multiple selectors: `h1, h2, p`
+     - Descendant selectors: `article p`
+   - Preserves document order automatically
+
+5. **Renderer** (Lua)
    - Takes extracted content and renders to monochrome display
    - Handles text wrapping, scrolling, and basic layout
    - Supports crank and button navigation
+   - Different font styles for h1, h2, h3, and p tags
 
-### XPath Content Extraction Design
+### CSS Selector Content Extraction Design
 
-**Key Design Decision**: Use XPath union expressions to extract multiple element types while preserving document order.
+**Key Design Decision**: Use CSS selectors instead of XPath for simplicity and Lua compatibility.
 
 #### How It Works
 
-1. **Single XPath Union Query**: Combine multiple element selectors with `|`
-   ```xpath
-   //article//h1 | //article//h2 | //article//h3 | //article//p
+1. **Parse HTML**: Use lua-htmlparser to build DOM tree
+   ```lua
+   local root = htmlparser.parse(html)
    ```
 
-2. **Document Order Preservation**: XPath union results are guaranteed to be in document order
-   - Headers and paragraphs remain interleaved as they appear in the source
-   - No manual sorting needed
-
-3. **Type Information from XML Nodes**: libxml2 provides node metadata automatically
-   ```c
-   xmlNodePtr node = nodes->nodeTab[i];
-   const char* tag_name = (const char*)node->name;  // "h1", "h2", "p", etc.
-   xmlChar* content = xmlNodeGetContent(node);
+2. **Parse CSS Selector String**: Split by commas for multiple selectors
+   ```lua
+   local selectors = {}
+   for selector in string.gmatch(selectorString, "([^,]+)") do
+       table.insert(selectors, selector)
+   end
    ```
 
-4. **Return Format to Lua**:
+3. **Apply Each Selector**: Recursively traverse DOM tree
+   ```lua
+   -- Simple tag selector
+   if node.name and node.name:lower() == "h1" then
+       -- Extract text content
+   end
+
+   -- Descendant selector (e.g., "article p")
+   if node.name and node.name:lower() == "article" then
+       findDescendants(node, "p")
+   end
+   ```
+
+4. **Return Format**:
    ```lua
    {
      {type = "h1", content = "Article Title"},
@@ -132,35 +142,35 @@ PlaydateSimulator exo.pdx
    ```
 
 #### Advantages
-- Single efficient XPath query
-- Automatic document order preservation
-- Type information comes from XML node names (built-in)
-- Simple C implementation
-- Flexible site configuration
+- Pure Lua - easy to debug with print()
+- No compilation required
+- Simple to understand and modify
+- Document order preserved naturally
+- Works identically on Simulator and Device
 
-### Lua-C Integration
+### Lua parseHTML Function
 
-C function exposed to Lua for HTML parsing:
+Function signature in `main.lua`:
 ```lua
--- Input: HTML string, XPath query
--- Output: Array of {type, content} tables in document order
--- Returns: result_table on success, or (nil, error_message) on failure
-result = parseHTML(html_string, xpath_query)
+-- Input: HTML string, CSS selector string
+-- Output: JSON-encoded array of {type, content} tables
+-- Returns: json_string on success, or (nil, error_message) on failure
+local jsonString, err = parseHTML(html_string, css_selector)
 ```
 
 Implementation details:
-- Keep C API minimal
-- Pass simple data structures between Lua and C (strings, tables)
-- Use libxml2's `htmlReadMemory()` for parsing (handles malformed HTML)
-- Use `xmlXPathEvalExpression()` for XPath queries
-- Error handling returns nil and error message to Lua
+- Parse HTML with lua-htmlparser
+- Extract matching elements recursively
+- Return results as JSON string (for compatibility with original C API design)
+- Simple error handling
 
 ## Development Workflow
 
-1. Test in Simulator during development (faster iteration)
-2. Use `print()` for debugging (appears in Simulator console)
-3. Keep code simple - optimize only when performance issues are observed
-4. Test on actual hardware periodically
+1. Edit Lua files in `source/` directory
+2. Rebuild with `pdc source exo.pdx` (instant - no compilation)
+3. Test in Simulator with `open exo.pdx`
+4. Use `print()` for debugging (appears in Simulator console)
+5. Test on actual hardware periodically
 
 ## Key APIs
 
@@ -168,14 +178,16 @@ Implementation details:
 - `playdate.graphics.*` - Drawing and display
 - `playdate.getCrankChange()` - Crank input for scrolling
 - `playdate.buttonIsPressed()` - Button input
-- `playdate.datastore.*` - Persistent storage (if needed for bookmarks/history)
-- `playdate.file.*` - File operations
+- `playdate.network.*` - HTTP networking (async)
+- `playdate.datastore.*` - Persistent storage (for bookmarks/history)
+- `json.encode()` / `json.decode()` - JSON serialization
 
-### C API Integration
-- `pd->lua->*` - Lua runtime interaction from C
-- `pd->lua->registerFunction()` - Register C functions callable from Lua
-- `pd->lua->pushString()`, `pd->lua->getArgString()` - Pass strings between C and Lua
-- Access Playdate APIs from C using the `playdate_api` struct
+### lua-htmlparser API
+- `htmlparser.parse(html_string)` - Parse HTML, returns root node
+- `node.name` - Tag name (e.g., "h1", "p")
+- `node:getcontent()` - Get text content of node
+- `node.nodes` - Array of child nodes
+- `node.attributes` - Table of attributes
 
 ## Site Configuration Format
 
@@ -184,14 +196,14 @@ Store in `source/sites.lua`:
 ```lua
 sites = {
   {
-    name = "CS Monitor Article",
-    pattern = "^https://www%.csmonitor%.com/text_edition/.*",
-    xpath = "//h1 | //div[contains(@class, 'story-bylines')]//text() | //article//p | //article//h2 | //article//h3"
+    name = "Example Site",
+    pattern = "^https://example%.com/.*",
+    selector = "h1, h2, p"
   },
   {
-    name = "CS Monitor Front Page",
-    pattern = "^https://www%.csmonitor%.com/text_edition$",
-    xpath = "//h2 | //a[contains(@href, 'text_edition')] | //p"
+    name = "Blog Article",
+    pattern = "^https://blog%.example%.com/posts/.*",
+    selector = "article h1, article h2, article p"
   },
   -- Additional sites...
 }
@@ -203,37 +215,62 @@ sites = {
 - Use `%.` to escape literal dots
 - Use `.*` for wildcard segments
 - **Order matters**: More specific patterns should come first in the list
-  - Example: Article pattern (`/text_edition/.*`) must come before front page pattern (`/text_edition$`)
 
-### XPath Guidelines
-- Use union (`|`) to select multiple element types in one query
-- Results will be in document order automatically
-- Keep XPath queries focused on content areas (exclude nav, footer, ads)
-- Use container-based queries (e.g., `//article//p`) to scope extraction
-- Test XPath queries against real HTML before deployment
+### CSS Selector Guidelines
+- **Simple selectors**: `h1`, `p`, `h2` - matches tag name
+- **Multiple selectors**: `h1, h2, p` - matches any of these tags
+- **Descendant selectors**: `article p` - matches `<p>` inside `<article>`
+- Keep selectors simple - complex selectors not yet supported
+- Test selectors against real HTML before deployment
+- Results automatically preserve document order
 
-### Example: CS Monitor Text Edition
+### Example: Generic Test Site
 
-**Front page** (https://www.csmonitor.com/text_edition):
-- Section headers: `<h2>` tags
-- Article links: `<a>` tags with `href` containing "text_edition"
-- Summaries: `<p>` tags
+```lua
+{
+  name = "Example.com",
+  pattern = "^https?://example%.com.*",
+  selector = "h1, h2, p"
+}
+```
 
-**Article pages** (https://www.csmonitor.com/text_edition/*):
-- Title: `<h1>` tag
-- Byline: Text within `<div class="story-bylines">`
-- Content: `<p>`, `<h2>`, `<h3>` tags within `<article>`
+This will extract:
+- All `<h1>` tags
+- All `<h2>` tags
+- All `<p>` tags
+- In document order
 
 ## Testing Approach
 
-- Test XPath rules against real HTML in Simulator
+- Test CSS selectors with B button (local test HTML)
+- Test network fetching with A button
+- Use `print()` statements liberally
+- Check Simulator console for debug output
 - Test scrolling and navigation with crank and buttons
-- Test pattern matching with various URLs
 - Verify document order preservation in extracted content
+
+## Debugging
+
+The Playdate Simulator console shows:
+- All `print()` output from Lua code
+- Network activity (GET requests, headers, response status)
+- Data received callbacks with byte counts
+- Error messages and stack traces
+- Very helpful for debugging!
+
+## Future Enhancements
+
+Potential improvements:
+- **Advanced selectors**: Support for classes (`.class`), IDs (`#id`), attributes (`[attr]`)
+- **URL input**: Keyboard UI for entering arbitrary URLs
+- **Bookmarks**: Save favorite sites
+- **History**: Track visited pages
+- **Better error handling**: Retry logic, timeouts
+- **More sites**: Expand curated list
 
 ## References
 
-- Playdate SDK Lua: https://sdk.play.date/3.0.0/Inside%20Playdate.html
-- Playdate SDK C: https://sdk.play.date/3.0.0/Inside%20Playdate%20with%20C.html
-- libxml2 XPath: http://xmlsoft.org/html/libxml-xpath.html
-- libxml2 HTML Parser: http://xmlsoft.org/html/libxml-HTMLparser.html
+- Playdate SDK Lua: https://sdk.play.date/Inside%20Playdate.html
+- lua-htmlparser: https://github.com/msva/lua-htmlparser
+- CSS Selectors: https://www.w3schools.com/cssref/css_selectors.php
+- Lua Patterns: https://www.lua.org/pil/20.2.html
