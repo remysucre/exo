@@ -6,6 +6,7 @@ import "CoreLibs/ui"
 
 local gfx <const> = playdate.graphics
 local sites = import "sites"
+local htmlparser = import "htmlparser"
 
 -- State
 local currentURL = nil
@@ -25,9 +26,87 @@ local fetchError = nil
 local fetchURL = nil
 local fetchSite = nil
 
--- Load the parseHTML function from C extension
--- This will be registered by the C code
--- parseHTML(html_string, css_selector) -> {{type="h1", content="..."}, ...}
+-- Parse HTML using lua-htmlparser and extract content with CSS selectors
+function parseHTML(html, selectorString)
+    -- Parse HTML
+    local root = htmlparser.parse(html)
+    if not root then
+        return nil, "Failed to parse HTML"
+    end
+
+    -- Parse CSS selector (simple implementation for comma-separated tag names)
+    local selectors = {}
+    for selector in string.gmatch(selectorString, "([^,]+)") do
+        selector = selector:match("^%s*(.-)%s*$") -- trim whitespace
+        table.insert(selectors, selector)
+    end
+
+    -- Extract elements
+    local results = {}
+
+    -- Helper function to recursively find elements
+    local function findElements(node, selector)
+        if not node then return end
+
+        -- Split descendant selector (e.g., "article p" -> {"article", "p"})
+        local parts = {}
+        for part in string.gmatch(selector, "%S+") do
+            table.insert(parts, part:lower())
+        end
+
+        -- If single selector, just match tag name
+        if #parts == 1 then
+            if node.name and node.name:lower() == parts[1] then
+                -- Get text content
+                local text = node:getcontent()
+                if text and #text > 0 then
+                    table.insert(results, {
+                        type = node.name:lower(),
+                        content = text
+                    })
+                end
+            end
+        else
+            -- Descendant selector (e.g., "article p")
+            -- First find the ancestor, then find descendants
+            if node.name and node.name:lower() == parts[1] then
+                -- Found ancestor, now search for descendants
+                local function findDescendants(n, targetTag)
+                    if n.name and n.name:lower() == targetTag then
+                        local text = n:getcontent()
+                        if text and #text > 0 then
+                            table.insert(results, {
+                                type = n.name:lower(),
+                                content = text
+                            })
+                        end
+                    end
+                    if n.nodes then
+                        for _, child in ipairs(n.nodes) do
+                            findDescendants(child, targetTag)
+                        end
+                    end
+                end
+                findDescendants(node, parts[#parts])
+            end
+        end
+
+        -- Recurse into children
+        if node.nodes then
+            for _, child in ipairs(node.nodes) do
+                findElements(child, selector)
+            end
+        end
+    end
+
+    -- Apply each selector
+    for _, selector in ipairs(selectors) do
+        findElements(root, selector)
+    end
+
+    -- Return results as JSON string (to match C API)
+    return json.encode(results)
+end
 
 function loadURL(url)
     -- Check if network is ready

@@ -1,14 +1,19 @@
-# Build directory
+# Build directories
 build/
+build_sim/
+build_device/
 
 # Compiled Playdate extension
 source/pdex.dylib
 source/pdex.dll
 source/pdex.so
-source/pdex.bin
+source/pdex.elf
 
 # Playdate bundle
 *.pdx
+
+# Build system (we use CMake, not Make)
+Makefile
 
 # macOS
 .DS_Store
