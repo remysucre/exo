@@ -27,7 +27,7 @@ local fetchSite = nil
 
 -- Load the parseHTML function from C extension
 -- This will be registered by the C code
--- parseHTML(html_string, xpath_query) -> {{type="h1", content="..."}, ...}
+-- parseHTML(html_string, css_selector) -> {{type="h1", content="..."}, ...}
 
 function loadURL(url)
     -- Check if network is ready
@@ -306,8 +306,8 @@ function playdate.update()
         fetchState = nil
         statusMessage = "Parsing HTML..."
 
-        -- Parse HTML with XPath (returns JSON string)
-        local jsonString, err = parseHTML(fetchHTML, fetchSite.xpath)
+        -- Parse HTML with CSS selectors (returns JSON string)
+        local jsonString, err = parseHTML(fetchHTML, fetchSite.selector)
         if not jsonString then
             statusMessage = "Error: " .. (err or "Parse failed")
             currentContent = nil
@@ -412,9 +412,9 @@ function playdate.BButtonDown()
     <h1>Welcome to exo browser</h1>
     <p>This is a test paragraph demonstrating the browser's text rendering capabilities.</p>
     <h2>Features</h2>
-    <p>The exo browser extracts content using XPath queries and displays it in a readable format on the Playdate.</p>
+    <p>The exo browser extracts content using CSS selectors and displays it in a readable format on the Playdate.</p>
     <h2>Architecture</h2>
-    <p>Built with Lua for the UI and C with libxml2 for HTML parsing. Content is extracted using XPath union queries to preserve document order.</p>
+    <p>Built with Lua for the UI and C with lexbor for HTML parsing. Content is extracted using CSS selectors to preserve document order.</p>
     <p>Scroll with the crank or D-pad to read through content.</p>
 </body>
 </html>
@@ -434,7 +434,7 @@ function playdate.BButtonDown()
 
     if matchedSite then
         statusMessage = "Parsing test HTML..."
-        local jsonString, err = parseHTML(testHTML, matchedSite.xpath)
+        local jsonString, err = parseHTML(testHTML, matchedSite.selector)
         if jsonString then
             local content = json.decode(jsonString)
             if content then

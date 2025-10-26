@@ -1,16 +1,75 @@
-// HTML Parser for Playdate using libxml2
-// Provides XPath-based content extraction
+// HTML Parser for Playdate using lexbor
+// Provides CSS selector-based content extraction
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libxml/HTMLparser.h>
-#include <libxml/xpath.h>
-#include <libxml/xpathInternals.h>
+#include <lexbor/html/html.h>
+#include <lexbor/css/css.h>
+#include <lexbor/selectors/selectors.h>
 
 #include "pd_api.h"
 
 static PlaydateAPI* pd = NULL;
+
+// Structure to collect results from selector callbacks
+typedef struct {
+    char* json;
+    size_t size;
+    size_t capacity;
+    int itemCount;
+} ResultCollector;
+
+// Initialize result collector
+static ResultCollector* resultCollectorCreate() {
+    ResultCollector* collector = malloc(sizeof(ResultCollector));
+    if (!collector) return NULL;
+
+    collector->capacity = 4096;
+    collector->json = malloc(collector->capacity);
+    if (!collector->json) {
+        free(collector);
+        return NULL;
+    }
+
+    strcpy(collector->json, "[");
+    collector->size = 1;
+    collector->itemCount = 0;
+
+    return collector;
+}
+
+// Append to result collector, growing buffer if needed
+static int resultCollectorAppend(ResultCollector* collector, const char* str) {
+    size_t len = strlen(str);
+    size_t needed = collector->size + len + 1;
+
+    if (needed > collector->capacity) {
+        size_t newCapacity = collector->capacity * 2;
+        while (newCapacity < needed) {
+            newCapacity *= 2;
+        }
+
+        char* newJson = realloc(collector->json, newCapacity);
+        if (!newJson) return 0;
+
+        collector->json = newJson;
+        collector->capacity = newCapacity;
+    }
+
+    strcpy(collector->json + collector->size, str);
+    collector->size += len;
+
+    return 1;
+}
+
+// Free result collector
+static void resultCollectorDestroy(ResultCollector* collector) {
+    if (collector) {
+        if (collector->json) free(collector->json);
+        free(collector);
+    }
+}
 
 // Clean up text content - remove extra whitespace, trim
 static char* cleanText(const char* text) {
@@ -81,139 +140,177 @@ static char* escapeJSON(const char* str) {
     return escaped;
 }
 
-// parseHTML(html_string, xpath_query) -> JSON string or (nil, error)
+// Callback for lexbor selector results
+static lxb_status_t selectorCallback(lxb_dom_node_t *node, lxb_css_selector_specificity_t spec, void *ctx) {
+    ResultCollector* collector = (ResultCollector*)ctx;
+
+    // Get node type (tag name)
+    const char* nodeType = "text";
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        lxb_dom_element_t* element = lxb_dom_interface_element(node);
+        const lxb_char_t* tagName = lxb_dom_element_local_name(element, NULL);
+        if (tagName) {
+            nodeType = (const char*)tagName;
+        }
+    }
+
+    // Get node text content
+    size_t contentLen = 0;
+    lxb_char_t* content = lxb_dom_node_text_content(node, &contentLen);
+    if (!content || contentLen == 0) {
+        if (content) lxb_dom_document_destroy_text(node->owner_document, content);
+        return LXB_STATUS_OK;
+    }
+
+    // Clean the text
+    char* cleanedContent = cleanText((const char*)content);
+    lxb_dom_document_destroy_text(node->owner_document, content);
+
+    if (!cleanedContent || strlen(cleanedContent) == 0) {
+        if (cleanedContent) free(cleanedContent);
+        return LXB_STATUS_OK;
+    }
+
+    // Escape for JSON
+    char* escapedContent = escapeJSON(cleanedContent);
+    free(cleanedContent);
+
+    if (!escapedContent) {
+        return LXB_STATUS_OK;
+    }
+
+    // Build JSON object: {"type":"h1","content":"..."}
+    char buffer[256];
+    if (collector->itemCount > 0) {
+        resultCollectorAppend(collector, ",");
+    }
+
+    snprintf(buffer, sizeof(buffer), "{\"type\":\"%s\",\"content\":\"", nodeType);
+    resultCollectorAppend(collector, buffer);
+    resultCollectorAppend(collector, escapedContent);
+    resultCollectorAppend(collector, "\"}");
+
+    free(escapedContent);
+    collector->itemCount++;
+
+    return LXB_STATUS_OK;
+}
+
+// parseHTML(html_string, css_selector) -> JSON string or (nil, error)
 static int parseHTML(lua_State* L) {
     // Get arguments
     const char* html = pd->lua->getArgString(1);
-    const char* xpathQuery = pd->lua->getArgString(2);
+    const char* cssSelector = pd->lua->getArgString(2);
 
-    if (!html || !xpathQuery) {
+    if (!html || !cssSelector) {
         pd->lua->pushNil();
         pd->lua->pushString("Invalid arguments");
         return 2;
     }
 
-    // Parse HTML
-    htmlDocPtr doc = htmlReadMemory(html, strlen(html), NULL, NULL,
-                                    HTML_PARSE_RECOVER | HTML_PARSE_NOERROR | HTML_PARSE_NOWARNING);
+    // Create HTML document
+    lxb_html_document_t* document = lxb_html_document_create();
+    if (!document) {
+        pd->lua->pushNil();
+        pd->lua->pushString("Failed to create document");
+        return 2;
+    }
 
-    if (!doc) {
+    // Parse HTML
+    lxb_status_t status = lxb_html_document_parse(document,
+                                                    (const lxb_char_t*)html,
+                                                    strlen(html));
+    if (status != LXB_STATUS_OK) {
+        lxb_html_document_destroy(document);
         pd->lua->pushNil();
         pd->lua->pushString("Failed to parse HTML");
         return 2;
     }
 
-    // Create XPath context
-    xmlXPathContextPtr xpathCtx = xmlXPathNewContext(doc);
-    if (!xpathCtx) {
-        xmlFreeDoc(doc);
+    // Create CSS parser
+    lxb_css_parser_t* parser = lxb_css_parser_create();
+    if (!parser) {
+        lxb_html_document_destroy(document);
         pd->lua->pushNil();
-        pd->lua->pushString("Failed to create XPath context");
+        pd->lua->pushString("Failed to create CSS parser");
         return 2;
     }
 
-    // Evaluate XPath
-    xmlXPathObjectPtr xpathObj = xmlXPathEvalExpression((xmlChar*)xpathQuery, xpathCtx);
-    if (!xpathObj) {
-        xmlXPathFreeContext(xpathCtx);
-        xmlFreeDoc(doc);
+    status = lxb_css_parser_init(parser, NULL);
+    if (status != LXB_STATUS_OK) {
+        lxb_css_parser_destroy(parser, true);
+        lxb_html_document_destroy(document);
         pd->lua->pushNil();
-        pd->lua->pushString("Failed to evaluate XPath");
+        pd->lua->pushString("Failed to initialize CSS parser");
         return 2;
     }
 
-    // Get the node set
-    xmlNodeSetPtr nodes = xpathObj->nodesetval;
-    int nodeCount = nodes ? nodes->nodeNr : 0;
+    // Create selector engine
+    lxb_selectors_t* selectors = lxb_selectors_create();
+    if (!selectors) {
+        lxb_css_parser_destroy(parser, true);
+        lxb_html_document_destroy(document);
+        pd->lua->pushNil();
+        pd->lua->pushString("Failed to create selectors");
+        return 2;
+    }
 
-    // Build JSON string
-    // Start with reasonable buffer size
-    size_t jsonSize = 4096;
-    char* json = malloc(jsonSize);
-    if (!json) {
-        xmlXPathFreeObject(xpathObj);
-        xmlXPathFreeContext(xpathCtx);
-        xmlFreeDoc(doc);
+    status = lxb_selectors_init(selectors);
+    if (status != LXB_STATUS_OK) {
+        lxb_selectors_destroy(selectors, true);
+        lxb_css_parser_destroy(parser, true);
+        lxb_html_document_destroy(document);
+        pd->lua->pushNil();
+        pd->lua->pushString("Failed to initialize selectors");
+        return 2;
+    }
+
+    // Parse CSS selector
+    lxb_css_selector_list_t* list = lxb_css_selectors_parse(parser,
+                                                              (const lxb_char_t*)cssSelector,
+                                                              strlen(cssSelector));
+    if (!list) {
+        lxb_selectors_destroy(selectors, true);
+        lxb_css_parser_destroy(parser, true);
+        lxb_html_document_destroy(document);
+        pd->lua->pushNil();
+        pd->lua->pushString("Failed to parse CSS selector");
+        return 2;
+    }
+
+    // Create result collector
+    ResultCollector* collector = resultCollectorCreate();
+    if (!collector) {
+        lxb_selectors_destroy(selectors, true);
+        lxb_css_parser_destroy(parser, true);
+        lxb_html_document_destroy(document);
         pd->lua->pushNil();
         pd->lua->pushString("Out of memory");
         return 2;
     }
 
-    strcpy(json, "[");
-    int jsonPos = 1;
-    int itemCount = 0;
+    // Find matching nodes
+    lxb_dom_node_t* body = lxb_dom_interface_node(lxb_html_document_body_element(document));
+    status = lxb_selectors_find(selectors, body, list, selectorCallback, collector);
 
-    // Process each node
-    for (int i = 0; i < nodeCount; i++) {
-        xmlNodePtr node = nodes->nodeTab[i];
-
-        // Get node type (tag name)
-        const char* nodeType = "text";
-        if (node->type == XML_ELEMENT_NODE && node->name) {
-            nodeType = (const char*)node->name;
-        } else if (node->type == XML_TEXT_NODE || node->type == XML_CDATA_SECTION_NODE) {
-            nodeType = "text";
-        }
-
-        // Get node content
-        xmlChar* content = xmlNodeGetContent(node);
-        if (!content) continue;
-
-        // Clean the text
-        char* cleanedContent = cleanText((const char*)content);
-        xmlFree(content);
-
-        if (!cleanedContent || strlen(cleanedContent) == 0) {
-            if (cleanedContent) free(cleanedContent);
-            continue;
-        }
-
-        // Escape for JSON
-        char* escapedContent = escapeJSON(cleanedContent);
-        free(cleanedContent);
-
-        if (!escapedContent) continue;
-
-        // Build JSON object: {"type":"h1","content":"..."}
-        size_t needed = jsonPos + strlen(nodeType) + strlen(escapedContent) + 100;
-        if (needed > jsonSize) {
-            jsonSize = needed * 2;
-            char* newJson = realloc(json, jsonSize);
-            if (!newJson) {
-                free(json);
-                free(escapedContent);
-                xmlXPathFreeObject(xpathObj);
-                xmlXPathFreeContext(xpathCtx);
-                xmlFreeDoc(doc);
-                pd->lua->pushNil();
-                pd->lua->pushString("Out of memory");
-                return 2;
-            }
-            json = newJson;
-        }
-
-        if (itemCount > 0) {
-            json[jsonPos++] = ',';
-        }
-
-        jsonPos += sprintf(json + jsonPos, "{\"type\":\"%s\",\"content\":\"%s\"}",
-                          nodeType, escapedContent);
-
-        free(escapedContent);
-        itemCount++;
-    }
-
-    json[jsonPos++] = ']';
-    json[jsonPos] = '\0';
+    // Close JSON array
+    resultCollectorAppend(collector, "]");
 
     // Cleanup
-    xmlXPathFreeObject(xpathObj);
-    xmlXPathFreeContext(xpathCtx);
-    xmlFreeDoc(doc);
+    lxb_selectors_destroy(selectors, true);
+    lxb_css_parser_destroy(parser, true);
+    lxb_html_document_destroy(document);
+
+    if (status != LXB_STATUS_OK) {
+        resultCollectorDestroy(collector);
+        pd->lua->pushNil();
+        pd->lua->pushString("Failed to find elements");
+        return 2;
+    }
 
     // Return JSON string
-    pd->lua->pushString(json);
-    free(json);
+    pd->lua->pushString(collector->json);
+    resultCollectorDestroy(collector);
 
     return 1;
 }
@@ -224,7 +321,7 @@ __declspec(dllexport)
 int eventHandler(PlaydateAPI* playdate, PDSystemEvent event, uint32_t arg) {
     if (event == kEventInit) {
         pd = playdate;
-        pd->system->logToConsole("HTML Parser extension initializing...");
+        pd->system->logToConsole("HTML Parser extension (lexbor) initializing...");
     } else if (event == kEventInitLua) {
         // Register the parseHTML function after Lua is initialized
         const char* err;
@@ -233,7 +330,7 @@ int eventHandler(PlaydateAPI* playdate, PDSystemEvent event, uint32_t arg) {
             return 1;
         }
 
-        pd->system->logToConsole("HTML Parser extension loaded");
+        pd->system->logToConsole("HTML Parser extension (lexbor) loaded");
     }
 
     return 0;

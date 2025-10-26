@@ -1,3 +1,21 @@
+# Build directory
 build/
-*.pdx/
-*.dylib
+
+# Compiled Playdate extension
+source/pdex.dylib
+source/pdex.dll
+source/pdex.so
+source/pdex.bin
+
+# Playdate bundle
+*.pdx
+
+# macOS
+.DS_Store
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
