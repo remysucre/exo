@@ -238,93 +238,68 @@ end
 function renderContent()
     gfx.clear()
 
-    -- Draw status bar
-    gfx.setColor(gfx.kColorBlack)
-    gfx.fillRect(0, 0, 400, 20)
-    gfx.setImageDrawMode(gfx.kDrawModeFillWhite)
-    gfx.drawText(statusMessage, 5, 4)
-    gfx.setImageDrawMode(gfx.kDrawModeCopy)
-
     -- Draw content
     if not currentContent then
-        gfx.drawText("No content loaded", 10, 30)
-        gfx.drawText("Enter a URL to begin", 10, 50)
+        gfx.drawText("Loading...", 10, 10)
         return
     end
 
-    local y = 30 - scrollOffset
+    local y = 10 - scrollOffset
     local lineHeight = 16
 
     for _, element in ipairs(currentContent) do
-        if y > 20 and y < 240 then  -- Only draw visible elements
-            local text = element.content
+        local text = element.content
 
-            -- Different styling based on element type
-            if element.type == "h1" then
-                gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
-                lineHeight = 20
-            elseif element.type == "h2" then
-                gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
-                lineHeight = 18
-            elseif element.type == "h3" then
-                gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
-                lineHeight = 16
-            else
-                gfx.setFont(gfx.getSystemFont(gfx.font.kVariantNormal))
-                lineHeight = 16
-            end
-
-            -- Word wrap text
-            local maxWidth = 380
-            local words = {}
-            for word in string.gmatch(text, "%S+") do
-                table.insert(words, word)
-            end
-
-            local line = ""
-            for _, word in ipairs(words) do
-                local testLine = line == "" and word or line .. " " .. word
-                local textWidth = gfx.getTextSize(testLine)
-
-                if textWidth > maxWidth then
-                    if line ~= "" then
-                        gfx.drawText(line, 10, y)
-                        y += lineHeight
-                        line = word
-                    else
-                        -- Single word is too long, draw it anyway
-                        gfx.drawText(word, 10, y)
-                        y += lineHeight
-                        line = ""
-                    end
-                else
-                    line = testLine
-                end
-            end
-
-            if line ~= "" then
-                gfx.drawText(line, 10, y)
-                y += lineHeight
-            end
-
-            -- Add spacing after elements
-            y += 4
+        -- Different styling based on element type
+        if element.type == "h1" then
+            gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
+            lineHeight = 20
+        elseif element.type == "h2" then
+            gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
+            lineHeight = 18
+        elseif element.type == "h3" then
+            gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
+            lineHeight = 16
         else
-            -- Still need to calculate height even if not visible
-            -- for accurate scrolling
-            local text = element.content
-            local maxWidth = 380
-            local textWidth = gfx.getTextSize(text)
-            local lines = math.ceil(textWidth / maxWidth)
+            gfx.setFont(gfx.getSystemFont(gfx.font.kVariantNormal))
+            lineHeight = 16
+        end
 
-            if element.type == "h1" then
-                y += lines * 20 + 4
-            elseif element.type == "h2" then
-                y += lines * 18 + 4
+        -- Word wrap text
+        local maxWidth = 380
+        local words = {}
+        for word in string.gmatch(text, "%S+") do
+            table.insert(words, word)
+        end
+
+        local line = ""
+        for _, word in ipairs(words) do
+            local testLine = line == "" and word or line .. " " .. word
+            local textWidth = gfx.getTextSize(testLine)
+
+            if textWidth > maxWidth then
+                if line ~= "" then
+                    gfx.drawText(line, 10, y)
+                    y += lineHeight
+                    line = word
+                else
+                    -- Single word is too long, draw it anyway
+                    gfx.drawText(word, 10, y)
+                    y += lineHeight
+                    line = ""
+                end
             else
-                y += lines * 16 + 4
+                line = testLine
             end
         end
+
+        if line ~= "" then
+            gfx.drawText(line, 10, y)
+            y += lineHeight
+        end
+
+        -- Add spacing after elements
+        y += 4
     end
 end
 
@@ -392,7 +367,7 @@ function playdate.update()
     end
 end
 
--- Enable networking
+-- Enable networking and load page automatically
 playdate.network.setEnabled(true, function(err)
     if err then
         print("Network error:", err)
@@ -401,13 +376,8 @@ playdate.network.setEnabled(true, function(err)
     else
         print("Network enabled")
         networkReady = true
-        statusMessage = "Network ready - Press A to load remy.wang"
+        -- Load page immediately
+        pendingURL = "https://remy.wang/index.html"
+        print("Auto-loading URL:", pendingURL)
     end
 end)
-
--- Test URL - A button to fetch remy.wang
-function playdate.AButtonDown()
-    pendingURL = "https://remy.wang/index.html"
-    statusMessage = "Queued: " .. pendingURL
-    print("Loading URL:", pendingURL)
-end
