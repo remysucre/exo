@@ -26,24 +26,6 @@ local fetchError = nil
 local fetchURL = nil
 local fetchSite = nil
 
--- Helper function to collect all link texts from an element
-local function collectLinkTexts(node, linkTexts)
-    if not node then return end
-
-    if node.name and node.name:lower() == "a" then
-        local linkText = node:getcontent()
-        if linkText and #linkText > 0 then
-            linkTexts[linkText] = true
-        end
-    end
-
-    if node.nodes then
-        for _, child in ipairs(node.nodes) do
-            collectLinkTexts(child, linkTexts)
-        end
-    end
-end
-
 -- Parse HTML using lua-htmlparser and extract content with CSS selectors
 function parseHTML(html, selectors)
     -- Parse HTML
@@ -61,19 +43,23 @@ function parseHTML(html, selectors)
 
         if elements then
             for _, element in ipairs(elements) do
-                -- Get all text content
-                local text = element:getcontent()
-                if text and #text > 0 then
-                    -- Find all link texts in this element
-                    local linkTexts = {}
-                    collectLinkTexts(element, linkTexts)
+                -- Get the raw HTML text
+                local htmlText = element:gettext()
 
-                    -- Wrap each link text with asterisks for bold
-                    for linkText, _ in pairs(linkTexts) do
-                        -- Escape special pattern characters in linkText
-                        local escapedLinkText = linkText:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
-                        text = text:gsub(escapedLinkText, "*" .. linkText .. "*")
-                    end
+                if htmlText and #htmlText > 0 then
+                    -- Replace <a ...>text</a> with *text*
+                    local text = htmlText:gsub("<a[^>]*>([^<]*)</a>", "*%1*")
+
+                    -- Strip all remaining HTML tags
+                    text = text:gsub("<[^>]+>", "")
+
+                    -- Decode common HTML entities
+                    text = text:gsub("&nbsp;", " ")
+                    text = text:gsub("&amp;", "&")
+                    text = text:gsub("&lt;", "<")
+                    text = text:gsub("&gt;", ">")
+                    text = text:gsub("&quot;", "\"")
+                    text = text:gsub("&#39;", "'")
 
                     -- Strip extra whitespace
                     text = text:match("^%s*(.-)%s*$")
