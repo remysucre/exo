@@ -15,6 +15,10 @@ local scrollOffset = 0
 local statusMessage = "Connecting to WiFi..."
 local pendingURL = nil  -- URL to load in next update
 
+-- Link navigation state
+local pageLinks = {}  -- Array of {text, url}
+local selectedLinkIndex = 0  -- 0 means no link selected
+
 -- Network state
 local networkReady = false
 
@@ -32,6 +36,19 @@ function parseHTML(html, selectors)
     local root = htmlparser.parse(html)
     if not root then
         return nil, "Failed to parse HTML"
+    end
+
+    -- Extract all links from the page
+    local links = {}
+    local allLinks = root:select("a")
+    if allLinks then
+        for _, link in ipairs(allLinks) do
+            local href = link.attributes and link.attributes.href
+            local linkText = link:getcontent()
+            if href and linkText and #linkText > 0 then
+                table.insert(links, {text = linkText, url = href})
+            end
+        end
     end
 
     -- Use the library's built-in selector support
@@ -75,8 +92,8 @@ function parseHTML(html, selectors)
         end
     end
 
-    -- Return results table directly (no JSON encoding needed)
-    return results
+    -- Return results and links
+    return results, links
 end
 
 function loadURL(url)
@@ -265,6 +282,14 @@ function renderContent()
     for _, element in ipairs(currentContent) do
         local text = element.content
 
+        -- If a link is selected, replace it with italic version
+        if selectedLinkIndex > 0 and selectedLinkIndex <= #pageLinks then
+            local selectedLink = pageLinks[selectedLinkIndex]
+            -- Replace *linktext* with _linktext_ for the selected link
+            local escapedLinkText = selectedLink.text:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+            text = text:gsub("%*(" .. escapedLinkText .. ")%*", "_%1_")
+        end
+
         -- Different styling based on element type
         if element.type == "h1" then
             gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
@@ -331,15 +356,19 @@ function playdate.update()
         fetchState = nil
         statusMessage = "Parsing HTML..."
 
-        -- Parse HTML with CSS selectors (returns Lua table)
-        local content, err = parseHTML(fetchHTML, fetchSite.selector)
+        -- Parse HTML with CSS selectors (returns Lua table and links)
+        local content, links = parseHTML(fetchHTML, fetchSite.selector)
         if not content then
-            statusMessage = "Error: " .. (err or "Parse failed")
+            statusMessage = "Error: Parse failed"
             currentContent = nil
+            pageLinks = {}
+            selectedLinkIndex = 0
         else
             currentContent = content
             currentURL = fetchURL
-            statusMessage = "Loaded " .. #content .. " elements"
+            pageLinks = links or {}
+            selectedLinkIndex = #pageLinks > 0 and 1 or 0  -- Select first link if available
+            statusMessage = "Loaded " .. #content .. " elements, " .. #pageLinks .. " links"
         end
 
         -- Clean up
@@ -379,6 +408,55 @@ function playdate.update()
 
     if playdate.buttonJustPressed(playdate.kButtonDown) then
         scrollOffset += 20
+    end
+
+    -- Link navigation
+    if playdate.buttonJustPressed(playdate.kButtonLeft) then
+        if #pageLinks > 0 then
+            selectedLinkIndex -= 1
+            if selectedLinkIndex < 1 then
+                selectedLinkIndex = #pageLinks
+            end
+        end
+    end
+
+    if playdate.buttonJustPressed(playdate.kButtonRight) then
+        if #pageLinks > 0 then
+            selectedLinkIndex += 1
+            if selectedLinkIndex > #pageLinks then
+                selectedLinkIndex = 1
+            end
+        end
+    end
+
+    -- Follow selected link
+    if playdate.buttonJustPressed(playdate.kButtonA) then
+        if selectedLinkIndex > 0 and selectedLinkIndex <= #pageLinks then
+            local selectedLink = pageLinks[selectedLinkIndex]
+            local url = selectedLink.url
+
+            -- Handle relative URLs
+            if url:sub(1, 4) ~= "http" then
+                -- Relative URL - resolve against current URL
+                if currentURL then
+                    local base = currentURL:match("^(https?://[^/]+)")
+                    if url:sub(1, 1) == "/" then
+                        url = base .. url
+                    else
+                        -- Relative to current path
+                        local path = currentURL:match("^https?://[^/]+(.*/)")
+                        if path then
+                            url = base .. path .. url
+                        else
+                            url = base .. "/" .. url
+                        end
+                    end
+                end
+            end
+
+            pendingURL = url
+            print("Following link:", url)
+        end
     end
 end
 
