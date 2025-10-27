@@ -76,10 +76,13 @@ Edit `source/sites.lua` to add support for new websites:
 - More specific patterns should come first
 
 **CSS Selector guidelines:**
-- Use comma-separated selectors: `h1, h2, p`
-- Descendant selectors: `article p` (finds `<p>` inside `<article>`)
+- **Basic selectors**: `h1`, `.class`, `#id`, `[attribute]`
+- **Multiple selectors**: `h1, h2, p` (comma-separated)
+- **Combinators**: `article p` (descendant), `div > p` (child)
+- **Pseudo-classes**: `:not(selector)`
+- **Attribute matching**: `[href^='https']`, `[class*='article']`
+- Full jQuery-style selector support via lua-htmlparser
 - Results automatically preserve document order
-- Currently supports: tag names and simple descendant selectors
 
 ## Supported Sites
 
@@ -125,8 +128,7 @@ Future enhancements could include:
 - Bookmark management
 - History tracking
 - Better error handling and retry logic
-- Support for more sites
-- Advanced CSS selector support (classes, IDs, attributes)
+- Support for more sites (full jQuery-style selectors already supported!)
 
 ## Technology
 

@@ -34,77 +34,36 @@ function parseHTML(html, selectorString)
         return nil, "Failed to parse HTML"
     end
 
-    -- Parse CSS selector (simple implementation for comma-separated tag names)
-    local selectors = {}
-    for selector in string.gmatch(selectorString, "([^,]+)") do
-        selector = selector:match("^%s*(.-)%s*$") -- trim whitespace
-        table.insert(selectors, selector)
-    end
-
-    -- Extract elements
+    -- Use the library's built-in selector support
+    -- Split by commas to support multiple selectors
     local results = {}
 
-    -- Helper function to recursively find elements
-    local function findElements(node, selector)
-        if not node then return end
+    for selector in string.gmatch(selectorString, "([^,]+)") do
+        selector = selector:match("^%s*(.-)%s*$") -- trim whitespace
 
-        -- Split descendant selector (e.g., "article p" -> {"article", "p"})
-        local parts = {}
-        for part in string.gmatch(selector, "%S+") do
-            table.insert(parts, part:lower())
-        end
+        -- Use library's select() method
+        local elements = root:select(selector)
 
-        -- If single selector, just match tag name
-        if #parts == 1 then
-            if node.name and node.name:lower() == parts[1] then
+        if elements then
+            for _, element in ipairs(elements) do
                 -- Get text content
-                local text = node:getcontent()
+                local text = element:getcontent()
                 if text and #text > 0 then
-                    table.insert(results, {
-                        type = node.name:lower(),
-                        content = text
-                    })
-                end
-            end
-        else
-            -- Descendant selector (e.g., "article p")
-            -- First find the ancestor, then find descendants
-            if node.name and node.name:lower() == parts[1] then
-                -- Found ancestor, now search for descendants
-                local function findDescendants(n, targetTag)
-                    if n.name and n.name:lower() == targetTag then
-                        local text = n:getcontent()
-                        if text and #text > 0 then
-                            table.insert(results, {
-                                type = n.name:lower(),
-                                content = text
-                            })
-                        end
-                    end
-                    if n.nodes then
-                        for _, child in ipairs(n.nodes) do
-                            findDescendants(child, targetTag)
-                        end
-                    end
-                end
-                findDescendants(node, parts[#parts])
-            end
-        end
+                    -- Strip extra whitespace
+                    text = text:match("^%s*(.-)%s*$")
 
-        -- Recurse into children
-        if node.nodes then
-            for _, child in ipairs(node.nodes) do
-                findElements(child, selector)
+                    if #text > 0 then
+                        table.insert(results, {
+                            type = element.name and element.name:lower() or "unknown",
+                            content = text
+                        })
+                    end
+                end
             end
         end
     end
 
-    -- Apply each selector
-    for _, selector in ipairs(selectors) do
-        findElements(root, selector)
-    end
-
-    -- Return results as JSON string (to match C API)
+    -- Return results as JSON string
     return json.encode(results)
 end
 

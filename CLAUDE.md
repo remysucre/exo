@@ -86,11 +86,9 @@ PlaydateSimulator exo.pdx
    - Pure Lua implementation - easy to debug
 
 4. **CSS Selector Engine** (Lua)
-   - Simple implementation in `main.lua`
-   - Supports:
-     - Tag selectors: `h1`, `p`, `h2`
-     - Multiple selectors: `h1, h2, p`
-     - Descendant selectors: `article p`
+   - Uses lua-htmlparser's built-in `select()` method
+   - Full jQuery-style selector support (see CSS Selector Guidelines section)
+   - Supports classes, IDs, attributes, combinators, pseudo-classes
    - Preserves document order automatically
 
 5. **Renderer** (Lua)
@@ -118,16 +116,14 @@ PlaydateSimulator exo.pdx
    end
    ```
 
-3. **Apply Each Selector**: Recursively traverse DOM tree
+3. **Apply Each Selector**: Use library's select() method
    ```lua
-   -- Simple tag selector
-   if node.name and node.name:lower() == "h1" then
-       -- Extract text content
-   end
+   -- Library handles all selector complexity
+   local elements = root:select(selector)
 
-   -- Descendant selector (e.g., "article p")
-   if node.name and node.name:lower() == "article" then
-       findDescendants(node, "p")
+   for _, element in ipairs(elements) do
+       local text = element:getcontent()
+       -- Add to results
    end
    ```
 
@@ -217,12 +213,39 @@ sites = {
 - **Order matters**: More specific patterns should come first in the list
 
 ### CSS Selector Guidelines
-- **Simple selectors**: `h1`, `p`, `h2` - matches tag name
-- **Multiple selectors**: `h1, h2, p` - matches any of these tags
-- **Descendant selectors**: `article p` - matches `<p>` inside `<article>`
-- Keep selectors simple - complex selectors not yet supported
-- Test selectors against real HTML before deployment
-- Results automatically preserve document order
+
+The library supports a rich subset of jQuery selectors:
+
+**Basic selectors:**
+- `element` - elements with tag name (e.g., `h1`, `p`, `div`)
+- `#id` - elements with specific id
+- `.class` - elements with specific class
+- `*` - all elements
+
+**Attribute selectors:**
+- `[attribute]` - has attribute
+- `[attribute='value']` - attribute equals value
+- `[attribute!='value']` - attribute not equals value
+- `[attribute^='value']` - attribute starts with value
+- `[attribute$='value']` - attribute ends with value
+- `[attribute*='value']` - attribute contains value
+- `[attribute~='value']` - attribute contains word value
+- `[attribute|='value']` - attribute starts with value or value-
+
+**Combinators:**
+- `ancestor descendant` - descendant of ancestor
+- `parent > child` - direct child of parent
+- `:not(selector)` - elements not matching selector
+
+**Multiple selectors:**
+- `h1, h2, p` - matches any of these (comma-separated)
+
+**Complex examples:**
+- `article.blog-post > h1` - h1 that is direct child of article with class blog-post
+- `.content p:not(.caption)` - paragraphs in .content but not with class caption
+- `div[data-type='article'] h2` - h2 inside divs with data-type attribute
+
+Test selectors against real HTML before deployment. Results preserve document order.
 
 ### Example: Generic Test Site
 
