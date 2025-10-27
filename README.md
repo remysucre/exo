@@ -63,7 +63,7 @@ Edit `source/sites.lua` to add support for new websites:
 {
   name = "Site Name",
   pattern = "^https://example%.com/articles/.*",
-  selector = "article h1, article h2, article p"
+  selector = {"article h1", "article h2", "article p"}
 }
 ```
 
@@ -76,11 +76,11 @@ Edit `source/sites.lua` to add support for new websites:
 
 **CSS Selector guidelines:**
 - **Basic selectors**: `h1`, `.class`, `#id`, `[attribute]`
-- **Multiple selectors**: `h1, h2, p` (comma-separated)
 - **Combinators**: `article p` (descendant), `div > p` (child)
 - **Pseudo-classes**: `:not(selector)`
 - **Attribute matching**: `[href^='https']`, `[class*='article']`
 - Full jQuery-style selector support via lua-htmlparser
+- Each selector in the array is evaluated independently
 - Results automatically preserve document order
 
 ## Supported Sites

@@ -27,7 +27,7 @@ local fetchURL = nil
 local fetchSite = nil
 
 -- Parse HTML using lua-htmlparser and extract content with CSS selectors
-function parseHTML(html, selectorString)
+function parseHTML(html, selectors)
     -- Parse HTML
     local root = htmlparser.parse(html)
     if not root then
@@ -35,12 +35,9 @@ function parseHTML(html, selectorString)
     end
 
     -- Use the library's built-in selector support
-    -- Split by commas to support multiple selectors
     local results = {}
 
-    for selector in string.gmatch(selectorString, "([^,]+)") do
-        selector = selector:match("^%s*(.-)%s*$") -- trim whitespace
-
+    for _, selector in ipairs(selectors) do
         -- Use library's select() method
         local elements = root:select(selector)
 

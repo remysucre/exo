@@ -108,11 +108,10 @@ PlaydateSimulator exo.pdx
    local root = htmlparser.parse(html)
    ```
 
-2. **Parse CSS Selector String**: Split by commas for multiple selectors
+2. **Iterate Over Selectors**: Loop through selector array
    ```lua
-   local selectors = {}
-   for selector in string.gmatch(selectorString, "([^,]+)") do
-       table.insert(selectors, selector)
+   for _, selector in ipairs(selectors) do
+       -- Apply each selector
    end
    ```
 
@@ -141,6 +140,7 @@ PlaydateSimulator exo.pdx
 - Pure Lua - easy to debug with print()
 - No compilation required
 - Simple to understand and modify
+- Selectors passed as arrays - no string parsing needed
 - Document order preserved naturally
 - Works identically on Simulator and Device
 
@@ -148,15 +148,15 @@ PlaydateSimulator exo.pdx
 
 Function signature in `main.lua`:
 ```lua
--- Input: HTML string, CSS selector string
+-- Input: HTML string, array of CSS selectors
 -- Output: Array of {type, content} tables
 -- Returns: results_table on success, or (nil, error_message) on failure
-local content, err = parseHTML(html_string, css_selector)
+local content, err = parseHTML(html_string, {"h1", "h2", "p"})
 ```
 
 Implementation details:
 - Parse HTML with lua-htmlparser
-- Use library's built-in `select()` method for selectors
+- Use library's built-in `select()` method for each selector
 - Return results as Lua table (no JSON encoding needed)
 - Simple error handling
 
@@ -193,12 +193,12 @@ sites = {
   {
     name = "Example Site",
     pattern = "^https://example%.com/.*",
-    selector = "h1, h2, p"
+    selector = {"h1", "h2", "p"}
   },
   {
     name = "Blog Article",
     pattern = "^https://blog%.example%.com/posts/.*",
-    selector = "article h1, article h2, article p"
+    selector = {"article h1", "article h2", "article p"}
   },
   -- Additional sites...
 }
@@ -236,8 +236,9 @@ The library supports a rich subset of jQuery selectors:
 - `parent > child` - direct child of parent
 - `:not(selector)` - elements not matching selector
 
-**Multiple selectors:**
-- `h1, h2, p` - matches any of these (comma-separated)
+**Array of selectors:**
+- Each selector in the array is evaluated independently
+- Results from all selectors are combined in document order
 
 **Complex examples:**
 - `article.blog-post > h1` - h1 that is direct child of article with class blog-post
@@ -252,7 +253,7 @@ Test selectors against real HTML before deployment. Results preserve document or
 {
   name = "Example.com",
   pattern = "^https?://example%.com.*",
-  selector = "h1, h2, p"
+  selector = {"h1", "h2", "p"}
 }
 ```
 
