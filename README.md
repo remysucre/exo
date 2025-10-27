@@ -49,8 +49,7 @@ That's it! No compilation, no build tools required - just pure Lua.
 
 ### Current Test Mode
 
-- Press **B button** to test with local HTML
-- Press **A button** to try fetching from remy.wang
+- Press **A button** to fetch from remy.wang
 
 Controls:
 - **Crank**: Scroll smoothly through content

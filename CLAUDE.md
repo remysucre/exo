@@ -149,15 +149,15 @@ PlaydateSimulator exo.pdx
 Function signature in `main.lua`:
 ```lua
 -- Input: HTML string, CSS selector string
--- Output: JSON-encoded array of {type, content} tables
--- Returns: json_string on success, or (nil, error_message) on failure
-local jsonString, err = parseHTML(html_string, css_selector)
+-- Output: Array of {type, content} tables
+-- Returns: results_table on success, or (nil, error_message) on failure
+local content, err = parseHTML(html_string, css_selector)
 ```
 
 Implementation details:
 - Parse HTML with lua-htmlparser
-- Extract matching elements recursively
-- Return results as JSON string (for compatibility with original C API design)
+- Use library's built-in `select()` method for selectors
+- Return results as Lua table (no JSON encoding needed)
 - Simple error handling
 
 ## Development Workflow
@@ -176,7 +176,6 @@ Implementation details:
 - `playdate.buttonIsPressed()` - Button input
 - `playdate.network.*` - HTTP networking (async)
 - `playdate.datastore.*` - Persistent storage (for bookmarks/history)
-- `json.encode()` / `json.decode()` - JSON serialization
 
 ### lua-htmlparser API
 - `htmlparser.parse(html_string)` - Parse HTML, returns root node
@@ -265,12 +264,12 @@ This will extract:
 
 ## Testing Approach
 
-- Test CSS selectors with B button (local test HTML)
-- Test network fetching with A button
-- Use `print()` statements liberally
+- Test network fetching with A button (loads remy.wang)
+- Use `print()` statements liberally for debugging
 - Check Simulator console for debug output
 - Test scrolling and navigation with crank and buttons
 - Verify document order preservation in extracted content
+- Test CSS selectors against real HTML before deployment
 
 ## Debugging
 

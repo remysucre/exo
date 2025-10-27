@@ -63,8 +63,8 @@ function parseHTML(html, selectorString)
         end
     end
 
-    -- Return results as JSON string
-    return json.encode(results)
+    -- Return results table directly (no JSON encoding needed)
+    return results
 end
 
 function loadURL(url)
@@ -344,22 +344,15 @@ function playdate.update()
         fetchState = nil
         statusMessage = "Parsing HTML..."
 
-        -- Parse HTML with CSS selectors (returns JSON string)
-        local jsonString, err = parseHTML(fetchHTML, fetchSite.selector)
-        if not jsonString then
+        -- Parse HTML with CSS selectors (returns Lua table)
+        local content, err = parseHTML(fetchHTML, fetchSite.selector)
+        if not content then
             statusMessage = "Error: " .. (err or "Parse failed")
             currentContent = nil
         else
-            -- Parse JSON
-            local content = json.decode(jsonString)
-            if not content then
-                statusMessage = "Error: Failed to parse JSON"
-                currentContent = nil
-            else
-                currentContent = content
-                currentURL = fetchURL
-                statusMessage = "Loaded " .. #content .. " elements"
-            end
+            currentContent = content
+            currentURL = fetchURL
+            statusMessage = "Loaded " .. #content .. " elements"
         end
 
         -- Clean up
@@ -411,82 +404,13 @@ playdate.network.setEnabled(true, function(err)
     else
         print("Network enabled")
         networkReady = true
-        statusMessage = "Network ready - Press A for remy.wang, B for test"
+        statusMessage = "Network ready - Press A to load remy.wang"
     end
 end)
 
--- Test with hardcoded URLs
--- A button: Try to fetch remy.wang
--- B button: Load local test HTML
-
+-- Test URL - A button to fetch remy.wang
 function playdate.AButtonDown()
-    -- Cycle through test URLs
-    local testURLs = {
-        "https://remy.wang/index.html"
-    }
-
-    local currentIndex = 1
-    for i, url in ipairs(testURLs) do
-        if pendingURL == url then
-            currentIndex = i % #testURLs + 1
-            break
-        end
-    end
-
-    pendingURL = testURLs[currentIndex]
+    pendingURL = "https://remy.wang/index.html"
     statusMessage = "Queued: " .. pendingURL
-    print("Testing URL:", pendingURL)
-end
-
-function playdate.BButtonDown()
-    -- B button: use local test HTML
-    statusMessage = "Loading test HTML..."
-
-    local testHTML = [[
-<!DOCTYPE html>
-<html>
-<head><title>Test Page</title></head>
-<body>
-    <h1>Welcome to exo browser</h1>
-    <p>This is a test paragraph demonstrating the browser's text rendering capabilities.</p>
-    <h2>Features</h2>
-    <p>The exo browser extracts content using CSS selectors and displays it in a readable format on the Playdate.</p>
-    <h2>Architecture</h2>
-    <p>Built with Lua for the UI and C with lexbor for HTML parsing. Content is extracted using CSS selectors to preserve document order.</p>
-    <p>Scroll with the crank or D-pad to read through content.</p>
-</body>
-</html>
-    ]]
-
-    -- Create a fake URL for pattern matching
-    local fakeURL = "http://example.com"
-
-    -- Find matching site
-    local matchedSite = nil
-    for _, site in ipairs(sites) do
-        if string.match(fakeURL, site.pattern) then
-            matchedSite = site
-            break
-        end
-    end
-
-    if matchedSite then
-        statusMessage = "Parsing test HTML..."
-        local jsonString, err = parseHTML(testHTML, matchedSite.selector)
-        if jsonString then
-            local content = json.decode(jsonString)
-            if content then
-                currentContent = content
-                currentURL = "test://local"
-                scrollOffset = 0
-                statusMessage = "Loaded " .. #content .. " elements"
-            else
-                statusMessage = "Error: Failed to parse JSON"
-            end
-        else
-            statusMessage = "Error: " .. (err or "Parse failed")
-        end
-    else
-        statusMessage = "Error: No matching rules"
-    end
+    print("Loading URL:", pendingURL)
 end
