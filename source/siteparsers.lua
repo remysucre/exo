@@ -80,156 +80,95 @@ local function extractText(node)
     return nil
 end
 
-local function createTextElement(text)
-    return {
-        kind = "text",
-        content = text
-    }
+local function addText(elements, text)
+    if text and #text > 0 then
+        table.insert(elements, {
+            kind = "text",
+            content = text
+        })
+    end
 end
 
-local function createButtonElement(label, url)
-    return {
-        kind = "button",
-        label = label,
-        url = url
-    }
+local function addButton(elements, label, url)
+    if label and #label > 0 and url and #url > 0 then
+        table.insert(elements, {
+            kind = "button",
+            label = label,
+            url = url
+        })
+    end
 end
 
-local function extend(target, items)
-    if not target or not items then
-        return target
+local function parseRemy(html)
+    local root = htmlparser.parse(html)
+    if not root then
+        return nil, "Failed to parse HTML"
     end
 
-    for _, item in ipairs(items) do
-        table.insert(target, item)
-    end
-
-    return target
-end
-
-local function collectText(root, selectors)
     local elements = {}
-    if not selectors then
-        return elements
+
+    -- Heading as bold text
+    local headings = root:select("h1")
+    if headings and headings[1] then
+        local headingText = extractText(headings[1])
+        if headingText then
+            addText(elements, "_" .. headingText .. "_")
+        end
     end
 
-    for _, selector in ipairs(selectors) do
-        local nodes = root:select(selector)
-        if nodes then
-            for _, node in ipairs(nodes) do
-                local text = extractText(node)
-                if text then
-                    table.insert(elements, createTextElement(text))
-                end
+    -- First paragraph buttons (site links)
+    local paragraphs = root:select("p")
+    if paragraphs and paragraphs[1] then
+        local navLinks = paragraphs[1]:select("a")
+        if navLinks then
+            for _, link in ipairs(navLinks) do
+                local label = extractText(link)
+                local href = link.attributes and link.attributes.href
+                addButton(elements, label, href)
             end
         end
+    end
+
+    -- Second paragraph: intro text + inline button if present
+    if paragraphs and paragraphs[2] then
+        local introNode = paragraphs[2]
+        addText(elements, extractText(introNode))
+
+        local inlineLinks = introNode:select("a")
+        if inlineLinks and inlineLinks[1] then
+            local link = inlineLinks[1]
+            addButton(elements, extractText(link), link.attributes and link.attributes.href)
+        end
+    end
+
+    -- Third paragraph: standalone button (Joining Remy's lab)
+    if paragraphs and paragraphs[3] then
+        local callout = paragraphs[3]
+        local link = callout:select("a")
+        if link and link[1] then
+            local node = link[1]
+            addButton(elements, extractText(node), node.attributes and node.attributes.href)
+        else
+            addText(elements, extractText(callout))
+        end
+    end
+
+    -- Fourth paragraph text before student list
+    if paragraphs and paragraphs[4] then
+        addText(elements, extractText(paragraphs[4]))
+    end
+
+    if #elements == 0 then
+        return nil, "No recognizable content"
     end
 
     return elements
 end
 
-local function collectButtons(root, selectors)
-    local buttons = {}
-    if not selectors then
-        return buttons
-    end
-
-    for _, selector in ipairs(selectors) do
-        local nodes = root:select(selector)
-        if nodes then
-            for _, node in ipairs(nodes) do
-                local label = extractText(node)
-                local href = node.attributes and node.attributes.href
-                if label and href and #label > 0 then
-                    table.insert(buttons, createButtonElement(label, href))
-                end
-            end
-        end
-    end
-
-    return buttons
-end
-
-local function parserWithSelectors(config)
-    return {
-        name = config.name,
-        pattern = config.pattern,
-        parse = function(html)
-            local root = htmlparser.parse(html)
-            if not root then
-                return nil, "Failed to parse HTML"
-            end
-
-            local elements = {}
-            extend(elements, collectText(root, config.text))
-            extend(elements, collectButtons(root, config.buttons))
-
-            if config.custom then
-                config.custom(root, elements, {
-                    createTextElement = createTextElement,
-                    createButtonElement = createButtonElement,
-                    extend = extend,
-                    extractText = extractText
-                })
-            end
-
-            if #elements == 0 then
-                return nil, "No recognizable content"
-            end
-
-            return elements
-        end
-    }
-end
-
-local siteConfigs = {
-    {
-        name = "Google",
-        pattern = "^https?://google%.com/?$",
-        text = {"h1", "h2", "h3", "p"},
-        buttons = {"a"}
-    },
-    {
-        name = "HTTPBin HTML",
-        pattern = "^https?://httpbin%.org/html$",
-        text = {"h1", "p"},
-        buttons = {"a"}
-    },
-    {
-        name = "CERN Info",
-        pattern = "^https?://info%.cern%.ch/.*",
-        text = {"h1", "h2", "p", "ul > li"},
-        buttons = {"a"}
-    },
-    {
-        name = "Example.com",
-        pattern = "^https?://example%.com/?$",
-        text = {"h1", "p"},
-        buttons = {"a"}
-    },
-    {
-        name = "CS Monitor Article",
-        pattern = "^https?://www%.csmonitor%.com/text_edition/.*",
-        text = {
-            "h1",
-            "div[class*=\"story-bylines\"]",
-            "article h2",
-            "article h3",
-            "article p"
-        },
-        buttons = {"article a"}
-    },
+return {
     {
         name = "Remy's Homepage",
         pattern = "^https?://remy%.wang/.*",
-        text = {"h1", "p"},
-        buttons = {"a"}
+        parse = parseRemy
     }
 }
-
-local siteParsers = {}
-for _, config in ipairs(siteConfigs) do
-    table.insert(siteParsers, parserWithSelectors(config))
-end
-
-return siteParsers
