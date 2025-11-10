@@ -493,7 +493,7 @@ playdate.network.setEnabled(true, function(err)
         print("Network enabled")
         networkReady = true
         -- Load page immediately
-        pendingURL = "https://www.cbc.ca/lite/story/9.6972932"
+        pendingURL = "https://www.cbc.ca/lite/news?sort=latest"
         print("Auto-loading URL:", pendingURL)
     end
 end)

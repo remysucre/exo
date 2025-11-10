@@ -206,6 +206,38 @@ local function parseNPRArticle(html)
     return elements
 end
 
+local function parseCBCLiteFrontpage(html)
+    local root = htmlparser.parse(html)
+    if not root then
+        return nil, "Failed to parse HTML"
+    end
+
+    local elements = {}
+    addText(elements, "*CBC Lite*")
+    addText(elements, " ")
+
+    local links = root:select("a.contentlist_title__GRPR1")
+    if links then
+        for _, link in ipairs(links) do
+            local title = extractText(link)
+            local href = link.attributes and link.attributes.href
+            if title and #title > 0 then
+                addText(elements, title)
+                if href and #href > 0 then
+                    addButton(elements, "Read more", href)
+                end
+                addSpacer(elements, 6)
+            end
+        end
+    end
+
+    if #elements == 0 then
+        return nil, "No recognizable content"
+    end
+
+    return elements
+end
+
 local function parseCBCLiteArticle(html)
     local root = htmlparser.parse(html)
     if not root then
@@ -295,8 +327,13 @@ return {
         parse = parseNPRArticle
     },
     {
+        name = "CBC Lite Frontpage",
+        pattern = "^https?://www%.cbc%.ca/lite/news%?sort=latest?$",
+        parse = parseCBCLiteFrontpage
+    },
+    {
         name = "CBC Lite Article",
-        pattern = "^https?://www.cbc.ca/lite/story/9.6972932",
+        pattern = "^https?://www%.cbc%.ca/lite/story/.*",
         parse = parseCBCLiteArticle
     }
 }
