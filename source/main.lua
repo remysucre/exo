@@ -229,7 +229,7 @@ end
 
 function fetchHTMLAsync(url)
     -- HTTP fetch using Playdate's networking API (async, no blocking)
-    statusMessage = "Fetching HTML..."
+    statusMessage = "Loading..."
     print("fetchHTMLAsync called with URL:", url)
 
     -- Parse URL to get server and path
@@ -482,6 +482,7 @@ function playdate.update()
     if playdate.buttonJustPressed(playdate.kButtonB) then
         if #historyStack > 0 then
             local previousURL = table.remove(historyStack)
+            pageImage = nil
             navigatingBack = true
             statusMessage = "Loading previous page..."
             pendingURL = previousURL
