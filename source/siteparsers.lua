@@ -226,38 +226,73 @@ local function parseCBCLiteArticle(html)
         end
     end
 
-    local usedParagraphs = {}
-    local metaNodes = article:select("> p")
-    if metaNodes then
-        for index, node in ipairs(metaNodes) do
-            local text = extractText(node)
-            if text and #text > 0 then
-                addText(elements, text)
-                usedParagraphs[node] = true
-            end
-            if index >= 2 then
-                break
-            end
+    local metaNodes = {}
+    local metaCount = 0
+    local metaSeen = {}
+    local allParagraphs = article:select("p") or {}
+    for _, node in ipairs(allParagraphs) do
+        local classAttr = node.attributes and node.attributes.class or ""
+        if classAttr:match("article_segment__") then
+            break
+        end
+        local text = extractText(node)
+        if text and #text > 0 then
+            addText(elements, text)
+            metaSeen[node] = true
+            metaCount += 1
+        end
+        if metaCount >= 2 then
+            break
         end
     end
 
     addSpacer(elements, 8)
 
-    local segmentNodes = article:select("div.article_segment__aglub p")
-    local paragraphNodes = {}
-
-    if segmentNodes then
-        for _, p in ipairs(segmentNodes) do
-            table.insert(paragraphNodes, p)
+    local segmentContainers = article:select("[class*=\"article_segment__\"]")
+    if segmentContainers and #segmentContainers > 0 then
+        for _, node in ipairs(segmentContainers) do
+            local classAttr = node.attributes and node.attributes.class or ""
+            if not classAttr:match("embed") and not classAttr:match("related") then
+                if node.name == "p" then
+                    if not metaSeen[node] then
+                        local htmlText = node:gettext()
+                        if htmlText then
+                            htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
+                            htmlText = htmlText:gsub("<[^>]+>", "")
+                            local cleaned = cleanText(htmlText)
+                            if cleaned and #cleaned > 0 then
+                                addText(elements, cleaned)
+                            end
+                        end
+                    end
+                else
+                    local innerParagraphs = node:select("p")
+                    if innerParagraphs and #innerParagraphs > 0 then
+                        for _, p in ipairs(innerParagraphs) do
+                            local htmlText = p:gettext()
+                            if htmlText then
+                                htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
+                                htmlText = htmlText:gsub("<[^>]+>", "")
+                                local cleaned = cleanText(htmlText)
+                                if cleaned and #cleaned > 0 then
+                                    addText(elements, cleaned)
+                                end
+                            end
+                        end
+                    else
+                        local text = extractText(node)
+                        if text and #text > 0 then
+                            addText(elements, text)
+                        end
+                    end
+                end
+            end
         end
     else
-        paragraphNodes = article:select("p") or {}
-    end
-    if paragraphNodes then
-        for _, p in ipairs(paragraphNodes) do
-            local class = p.attributes and p.attributes.class or ""
-            if not usedParagraphs[p] and not class:match("embed") and not class:match("related") then
-                local htmlText = p:gettext()
+        for _, node in ipairs(allParagraphs) do
+            local classAttr = node.attributes and node.attributes.class or ""
+            if not metaSeen[node] and not classAttr:match("embed") and not classAttr:match("related") then
+                local htmlText = node:gettext()
                 if htmlText then
                     htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
                     htmlText = htmlText:gsub("<[^>]+>", "")
