@@ -92,7 +92,7 @@ local function preparePageImage(elements)
         end
     end
 
-    local totalHeight = math.max(currentY, (240 - contentPadding * 2))
+    local totalHeight = math.max(currentY + 40, (240 - contentPadding * 2))
     local imageHeight = totalHeight + contentPadding * 2
     local imageWidth = contentWidth + contentPadding * 2
 
@@ -113,7 +113,7 @@ local function preparePageImage(elements)
 end
 
 local selectionIndicatorHeight = 2
-local selectionLineY = 10
+local selectionLineY = 50
 local linkHighlightPadding = 2
 
 local function drawButtonElement(label, x, y, isSelected)
