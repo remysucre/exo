@@ -33,8 +33,16 @@ local fetchParser = nil
 
 -- Rendering helpers
 local textFonts = {
-    regular = gfx.getSystemFont(gfx.font.kVariantNormal)
+    regular = gfx.font.new("fonts/Asheville-Sans-14-Bold"),
+    italic = gfx.font.new("fonts/Asheville-Sans-14-Bold-Oblique"),
+    bold = gfx.font.new("fonts/Asheville-Sans-14-Bolder")
 }
+
+gfx.setFontFamily({
+    [playdate.graphics.font.kVariantNormal] = textFonts.regular,
+    [playdate.graphics.font.kVariantBold] = textFonts.bold,
+    [playdate.graphics.font.kVariantItalic] = textFonts.italic
+})
 local defaultFontHeight = textFonts.regular and textFonts.regular:getHeight() or 16
 local textLineHeight = math.max(defaultFontHeight, 16)
 local contentPadding = 10
