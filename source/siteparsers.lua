@@ -218,7 +218,7 @@ return {
     },
     {
         name = "NPR Text",
-        pattern = "https://text.npr.org",
+        pattern = "https://remy.wang/npr/index.html",
         parse = parseNPRText
     }
 }

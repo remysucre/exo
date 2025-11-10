@@ -16,6 +16,9 @@ local pendingURL = nil  -- URL to load in next update
 
 -- Button selection state (determined during render)
 local hoveredButton = nil
+local pageImage = nil
+local pageButtons = {}
+local pageHeight = 0
 
 -- Network state
 local networkReady = false
@@ -34,34 +37,90 @@ local textFonts = {
 }
 local defaultFontHeight = textFonts.regular and textFonts.regular:getHeight() or 16
 local textLineHeight = math.max(defaultFontHeight, 16)
+local contentPadding = 10
+local contentWidth = 400 - contentPadding * 2
+local paragraphSpacing = 4
+local buttonSpacing = 8
 
-local function drawTextBlock(text, startX, startY, maxWidth)
-    if not text or #text == 0 then
-        return startY
+local function clampScroll()
+    local viewportHeight = 240
+    local maxOffset = math.max(0, pageHeight - viewportHeight)
+    if scrollOffset > maxOffset then
+        scrollOffset = maxOffset
+    end
+    if scrollOffset < 0 then
+        scrollOffset = 0
+    end
+end
+
+local function preparePageImage(elements)
+    pageImage = nil
+    pageButtons = {}
+    pageHeight = 0
+
+    if not elements or #elements == 0 then
+        return
     end
 
     gfx.setFont(textFonts.regular)
-    local _, measuredHeight = gfx.getTextSizeForMaxWidth(text, maxWidth)
-    local blockHeight = measuredHeight or textLineHeight
-    gfx.drawText(text, startX, startY, maxWidth, blockHeight)
 
-    return startY + blockHeight
+    local textCommands = {}
+    local currentY = 0
+
+    for _, element in ipairs(elements) do
+        if element.kind == "button" then
+            local label = element.label or element.content or "Link"
+            local _, height = gfx.getTextSize(label)
+            height = height or textLineHeight
+            table.insert(pageButtons, {
+                label = label,
+                url = element.url,
+                y = currentY,
+                height = height
+            })
+            currentY += height + buttonSpacing
+        else
+            local text = element.content or ""
+            local _, height = gfx.getTextSizeForMaxWidth(text, contentWidth)
+            height = height or textLineHeight
+            table.insert(textCommands, {
+                text = text,
+                y = currentY,
+                height = height
+            })
+            currentY += height + paragraphSpacing
+        end
+    end
+
+    local totalHeight = math.max(currentY, (240 - contentPadding * 2))
+    local imageHeight = totalHeight + contentPadding * 2
+    local imageWidth = contentWidth + contentPadding * 2
+
+    local image = gfx.image.new(imageWidth, imageHeight)
+    gfx.lockFocus(image)
+    gfx.clear(gfx.kColorWhite)
+    gfx.setFont(textFonts.regular)
+
+    for _, command in ipairs(textCommands) do
+        gfx.drawText(command.text, contentPadding, contentPadding + command.y, contentWidth, command.height)
+    end
+
+    gfx.unlockFocus()
+    gfx.setColor(gfx.kColorBlack)
+
+    pageImage = image
+    pageHeight = imageHeight
 end
 
 local selectionIndicatorHeight = 2
-local selectionLineY = 50
+local selectionLineY = 10
 local linkHighlightPadding = 2
 
-local function drawButtonElement(element, x, y, maxWidth)
-    local font = textFonts.regular
-    gfx.setFont(font)
+local function drawButtonElement(label, x, y, isSelected)
+    gfx.setFont(textFonts.regular)
 
-    local label = element.label or element.content or "Link"
-    local text = label
-    local textWidth, textHeight = gfx.getTextSize(text)
+    local textWidth, textHeight = gfx.getTextSize(label)
     local buttonHeight = textHeight or textLineHeight
-
-    local isSelected = (y <= selectionLineY) and ((y + buttonHeight) >= selectionLineY)
 
     if isSelected then
         gfx.setColor(gfx.kColorBlack)
@@ -76,12 +135,11 @@ local function drawButtonElement(element, x, y, maxWidth)
         gfx.setImageDrawMode(gfx.kDrawModeCopy)
     end
 
-    local width, height = gfx.drawText(text, x, y)
+    local width = gfx.drawText(label, x, y)
     gfx.setImageDrawMode(gfx.kDrawModeCopy)
 
     gfx.drawLine(x, y + buttonHeight + selectionIndicatorHeight, x + width, y + buttonHeight + selectionIndicatorHeight)
 
-    return buttonHeight, isSelected
 end
 
 local function resolveURL(base, href)
@@ -292,33 +350,35 @@ end
 function renderContent()
     gfx.clear()
 
-    -- Draw content
-    if not currentContent then
-        gfx.drawText(statusMessage or "Loading...", 10, 10)
+    if not pageImage then
+        gfx.drawText(statusMessage or "Loading...", contentPadding, contentPadding)
         hoveredButton = nil
         return
     end
 
-    local y = 10 - scrollOffset
-    local contentLeft = 10
-    local contentWidth = 380
-    local selectedButton = nil
+    pageImage:draw(0, -scrollOffset)
+    hoveredButton = nil
 
-    for _, element in ipairs(currentContent) do
-        if element.kind == "button" then
-            local height, isSelected = drawButtonElement(element, contentLeft, y, contentWidth)
-            if isSelected then
-                selectedButton = element
-            end
-            y += height + 8
-        else
-            local text = element.content or ""
-            y = drawTextBlock(text, contentLeft, y, contentWidth)
-            y += 4
+    for _, button in ipairs(pageButtons) do
+        local screenY = contentPadding + button.y - scrollOffset
+        local buttonBottom = screenY + button.height
+
+        if buttonBottom < -20 then
+            goto continue
         end
-    end
 
-    hoveredButton = selectedButton
+        if screenY > 260 then
+            break
+        end
+
+        local isSelected = (screenY <= selectionLineY) and (buttonBottom >= selectionLineY)
+        drawButtonElement(button.label, contentPadding, screenY, isSelected)
+        if isSelected then
+            hoveredButton = button
+        end
+
+        ::continue::
+    end
 end
 
 function playdate.update()
@@ -342,10 +402,13 @@ function playdate.update()
             if not content then
                 statusMessage = "Error: " .. (parseErr or "Parse failed")
                 currentContent = nil
+                preparePageImage(nil)
             else
                 currentContent = content
                 currentURL = fetchURL
                 statusMessage = "Loaded " .. #content .. " elements"
+                scrollOffset = 0
+                preparePageImage(currentContent)
             end
         end
 
@@ -359,6 +422,7 @@ function playdate.update()
         fetchState = nil
         statusMessage = "Error: " .. (fetchError or "Unknown error")
         currentContent = nil
+        preparePageImage(nil)
 
         -- Clean up
         fetchHTML = ""
@@ -373,21 +437,18 @@ function playdate.update()
     local crankChange = playdate.getCrankChange()
     if crankChange ~= 0 then
         scrollOffset += crankChange
-        if scrollOffset < 0 then
-            scrollOffset = 0
-        end
+        clampScroll()
     end
 
     -- Button controls
     if playdate.buttonJustPressed(playdate.kButtonUp) then
         scrollOffset -= 20
-        if scrollOffset < 0 then
-            scrollOffset = 0
-        end
+        clampScroll()
     end
 
     if playdate.buttonJustPressed(playdate.kButtonDown) then
         scrollOffset += 20
+        clampScroll()
     end
 
     -- Follow button under selection line
@@ -412,7 +473,7 @@ playdate.network.setEnabled(true, function(err)
         print("Network enabled")
         networkReady = true
         -- Load page immediately
-        pendingURL = "https://text.npr.org"
+        pendingURL = "https://remy.wang/npr/index.html"
         print("Auto-loading URL:", pendingURL)
     end
 end)
