@@ -67,6 +67,7 @@ local function preparePageImage(elements)
     pageHeight = 0
 
     if not elements or #elements == 0 then
+        statusMessage = "Loading..."
         return
     end
 
@@ -476,6 +477,8 @@ function playdate.update()
         if hoveredButton and hoveredButton.url then
             local targetURL = resolveURL(currentURL, hoveredButton.url)
             if targetURL then
+                pageImage = nil
+                statusMessage = "Loading..."
                 pendingURL = targetURL
                 print("Following link:", targetURL)
             end
