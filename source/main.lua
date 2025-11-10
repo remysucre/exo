@@ -484,7 +484,7 @@ playdate.network.setEnabled(true, function(err)
         print("Network enabled")
         networkReady = true
         -- Load page immediately
-        pendingURL = "https://remy.wang/npr/index.html"
+        pendingURL = "https://remy.wang/npr/nx-s1-5602930.html"
         print("Auto-loading URL:", pendingURL)
     end
 end)

@@ -154,10 +154,66 @@ local function parseNPRText(html)
     return elements
 end
 
+local function parseNPRArticle(html)
+    local root = htmlparser.parse(html)
+    if not root then
+        return nil, "Failed to parse HTML"
+    end
+
+    local elements = {}
+    local container = root:select("article .story-container")[1] or root
+
+    local titleNode = container:select(".story-title")[1] or container:select("h1")[1]
+    if titleNode then
+        local titleText = extractText(titleNode)
+        if titleText then
+            addText(elements, "*" .. titleText .. "*")
+        end
+    end
+
+    local metaNodes = container:select(".story-head p")
+    if metaNodes then
+        for _, node in ipairs(metaNodes) do
+            local text = extractText(node)
+            if text and #text > 0 then
+                addText(elements, text)
+            end
+        end
+    end
+
+    addSpacer(elements, 10)
+
+    local paragraphs = container:select(".paragraphs-container p")
+    if paragraphs then
+        for _, p in ipairs(paragraphs) do
+            local htmlText = p:gettext()
+            if htmlText then
+                htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
+                htmlText = htmlText:gsub("<[^>]+>", "")
+                local cleaned = cleanText(htmlText)
+                if cleaned then
+                    addText(elements, cleaned)
+                end
+            end
+        end
+    end
+
+    if #elements == 0 then
+        return nil, "No recognizable content"
+    end
+
+    return elements
+end
+
 return {
     {
-        name = "NPR Text",
-        pattern = "https://remy.wang/npr/index.html",
+        name = "NPR frontpage",
+        pattern = "^https?://text%.npr%.org/?$",
         parse = parseNPRText
+    },
+    {
+        name = "NPR articles",
+        pattern = "^https?://remy%.wang/npr/.*",
+        parse = parseNPRArticle
     }
 }
