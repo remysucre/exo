@@ -32,6 +32,7 @@ local function cleanText(text)
         :gsub("\r\n", "\n")
         :gsub("\t", " ")
         :gsub("\n+", " ")
+        :gsub("—", "-")
 
     cleaned = cleaned:gsub("&[#%w]+;", function(entity)
         if entityMap[entity] then
