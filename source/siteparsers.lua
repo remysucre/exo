@@ -180,7 +180,7 @@ local function parseNPRText(html)
     if headingNodes and headingNodes[1] then
         local headingText = extractText(headingNodes[1])
         if headingText then
-            addText(elements, "_" .. headingText .. "_")
+            addText(elements, "*" .. headingText .. "*")
         end
     end
 
@@ -188,7 +188,7 @@ local function parseNPRText(html)
     if dateNodes and dateNodes[1] then
         local dateText = extractText(dateNodes[1])
         if dateText then
-            addText(elements, "*" .. dateText .. "*")
+            addText(elements, "_" .. dateText .. "_")
         end
     end
 
