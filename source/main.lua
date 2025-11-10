@@ -366,11 +366,12 @@ function renderContent()
         return
     end
 
-    pageImage:draw(0, -scrollOffset)
+    local drawOffset = math.floor(scrollOffset + 0.5)
+    pageImage:draw(0, -drawOffset)
     hoveredButton = nil
 
     for _, button in ipairs(pageButtons) do
-        local screenY = contentPadding + button.y - scrollOffset
+        local screenY = contentPadding + button.y - drawOffset
         local buttonBottom = screenY + button.height
 
         if buttonBottom < -20 then
