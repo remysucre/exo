@@ -68,7 +68,9 @@ local function preparePageImage(elements)
     local currentY = 0
 
     for _, element in ipairs(elements) do
-        if element.kind == "button" then
+        if element.kind == "spacer" then
+            currentY += element.size or paragraphSpacing
+        elseif element.kind == "button" then
             local label = element.label or element.content or "Link"
             local _, height = gfx.getTextSize(label)
             height = height or textLineHeight

@@ -89,6 +89,13 @@ local function addText(elements, text)
     end
 end
 
+local function addSpacer(elements, size)
+    table.insert(elements, {
+        kind = "spacer",
+        size = size or 8
+    })
+end
+
 local function addButton(elements, label, url)
     if label and #label > 0 and url and #url > 0 then
         table.insert(elements, {
@@ -189,6 +196,7 @@ local function parseNPRText(html)
         local dateText = extractText(dateNodes[1])
         if dateText then
             addText(elements, "_" .. dateText .. "_")
+            addSpacer(elements, 8)
         end
     end
 
@@ -199,6 +207,7 @@ local function parseNPRText(html)
             if headline then
                 addText(elements, headline)
                 addButton(elements, "Read more", link.attributes and link.attributes.href)
+                addSpacer(elements, 8)
             end
         end
     end
