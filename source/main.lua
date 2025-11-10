@@ -30,147 +30,56 @@ local fetchParser = nil
 
 -- Rendering helpers
 local textFonts = {
-    regular = gfx.getSystemFont(gfx.font.kVariantNormal),
-    bold = gfx.getSystemFont(gfx.font.kVariantBold) or gfx.getSystemFont(gfx.font.kVariantNormal),
-    italic = gfx.getSystemFont(gfx.font.kVariantItalic) or gfx.getSystemFont(gfx.font.kVariantNormal)
+    regular = gfx.getSystemFont(gfx.font.kVariantNormal)
 }
 local defaultFontHeight = textFonts.regular and textFonts.regular:getHeight() or 16
 local textLineHeight = math.max(defaultFontHeight, 16)
-local wordSpacing = 6
-
-local function tokenizeStyledWords(text)
-    local tokens = {}
-
-    if not text or #text == 0 then
-        return tokens
-    end
-
-    local i = 1
-    local length = #text
-
-    while i <= length do
-        local char = text:sub(i, i)
-
-        if char == "_" or char == "*" then
-            local closing = text:find(char, i + 1, true)
-            if closing then
-                local inner = text:sub(i + 1, closing - 1)
-                local style = char == "_" and "bold" or "italic"
-                for word in inner:gmatch("%S+") do
-                    table.insert(tokens, {text = word, style = style})
-                end
-                i = closing + 1
-            else
-                table.insert(tokens, {text = char, style = "regular"})
-                i += 1
-            end
-        elseif char:match("%s") then
-            i += 1
-        else
-            local nextSpecial = text:find("[_%*%s]", i)
-            local chunk
-            if nextSpecial then
-                chunk = text:sub(i, nextSpecial - 1)
-                i = nextSpecial
-            else
-                chunk = text:sub(i)
-                i = length + 1
-            end
-
-            if chunk and #chunk > 0 then
-                table.insert(tokens, {text = chunk, style = "regular"})
-            end
-        end
-    end
-
-    return tokens
-end
-
-local function drawWordsLine(words, startX, y)
-    local x = startX
-    for index, word in ipairs(words) do
-        if index > 1 then
-            x += wordSpacing
-        end
-        local font = textFonts[word.style] or textFonts.regular
-        gfx.setFont(font)
-        gfx.drawText(word.text, x, y)
-        x += gfx.getTextSize(word.text)
-    end
-end
 
 local function drawTextBlock(text, startX, startY, maxWidth)
-    local words = tokenizeStyledWords(text)
-    if #words == 0 then
+    if not text or #text == 0 then
         return startY
     end
 
-    local y = startY
-    local lineWords = {}
-    local lineWidth = 0
+    gfx.setFont(textFonts.regular)
+    local _, measuredHeight = gfx.getTextSizeForMaxWidth(text, maxWidth)
+    local blockHeight = measuredHeight or textLineHeight
+    gfx.drawText(text, startX, startY, maxWidth, blockHeight)
 
-    local function flushLine()
-        if #lineWords > 0 then
-            drawWordsLine(lineWords, startX, y)
-            y += textLineHeight
-        else
-            y += textLineHeight
-        end
-        lineWords = {}
-        lineWidth = 0
-    end
-
-    for _, word in ipairs(words) do
-        local font = textFonts[word.style] or textFonts.regular
-        gfx.setFont(font)
-        local wordWidth = gfx.getTextSize(word.text)
-        local spacing = (#lineWords > 0) and wordSpacing or 0
-
-        if lineWidth + spacing + wordWidth > maxWidth then
-            flushLine()
-            spacing = 0
-        end
-
-        if #lineWords > 0 then
-            lineWidth += wordSpacing
-        end
-
-        table.insert(lineWords, word)
-        lineWidth += wordWidth
-    end
-
-    flushLine()
-    return y
+    return startY + blockHeight
 end
 
+local selectionIndicatorHeight = 2
+local selectionLineY = 50
+local linkHighlightPadding = 2
+
 local function drawButtonElement(element, x, y, maxWidth)
-    local paddingX = 10
-    local paddingY = 6
-    local font = textFonts.bold or textFonts.regular
+    local font = textFonts.regular
     gfx.setFont(font)
 
     local label = element.label or element.content or "Link"
-    local textWidth = gfx.getTextSize(label)
-    local buttonWidth = math.min(maxWidth, textWidth + paddingX * 2)
-    local buttonHeight = textLineHeight + paddingY * 2
-    local cornerRadius = 6
+    local text = label
+    local textWidth, textHeight = gfx.getTextSize(text)
+    local buttonHeight = textHeight or textLineHeight
 
-    local isSelected = (y <= 10) and ((y + buttonHeight) >= 10)
+    local isSelected = (y <= selectionLineY) and ((y + buttonHeight) >= selectionLineY)
 
     if isSelected then
         gfx.setColor(gfx.kColorBlack)
-        gfx.fillRoundRect(x, y, buttonWidth, buttonHeight, cornerRadius)
+        gfx.fillRect(
+            x - linkHighlightPadding,
+            y - linkHighlightPadding,
+            (textWidth or 0) + linkHighlightPadding * 2,
+            buttonHeight + linkHighlightPadding * 2
+        )
         gfx.setImageDrawMode(gfx.kDrawModeFillWhite)
     else
-        gfx.setColor(gfx.kColorBlack)
-        gfx.drawRoundRect(x, y, buttonWidth, buttonHeight, cornerRadius)
         gfx.setImageDrawMode(gfx.kDrawModeCopy)
     end
 
-    local textAreaWidth = math.max(0, buttonWidth - paddingX * 2)
-    local textAreaHeight = math.max(0, buttonHeight - paddingY * 2)
-    gfx.drawTextInRect(label, x + paddingX, y + paddingY, textAreaWidth, textAreaHeight)
+    local width, height = gfx.drawText(text, x, y)
     gfx.setImageDrawMode(gfx.kDrawModeCopy)
+
+    gfx.drawLine(x, y + buttonHeight + selectionIndicatorHeight, x + width, y + buttonHeight + selectionIndicatorHeight)
 
     return buttonHeight, isSelected
 end
@@ -503,7 +412,7 @@ playdate.network.setEnabled(true, function(err)
         print("Network enabled")
         networkReady = true
         -- Load page immediately
-        pendingURL = "https://remy.wang/npr/index.html"
+        pendingURL = "https://text.npr.org"
         print("Auto-loading URL:", pendingURL)
     end
 end)
