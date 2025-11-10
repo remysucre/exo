@@ -30,6 +30,8 @@ local fetchHTML = ""
 local fetchError = nil
 local fetchURL = nil
 local fetchParser = nil
+local historyStack = {}
+local navigatingBack = false
 
 -- Rendering helpers
 local textFonts = {
@@ -425,8 +427,12 @@ function playdate.update()
                 currentContent = nil
                 preparePageImage(nil)
             else
+                if currentURL and currentURL ~= fetchURL and not navigatingBack then
+                    table.insert(historyStack, currentURL)
+                end
                 currentContent = content
                 currentURL = fetchURL
+                navigatingBack = false
                 statusMessage = "Loaded " .. #content .. " elements"
                 scrollOffset = 0
                 preparePageImage(currentContent)
@@ -450,6 +456,7 @@ function playdate.update()
         fetchURL = nil
         fetchParser = nil
         fetchError = nil
+        navigatingBack = false
     end
 
     renderContent()
@@ -470,6 +477,17 @@ function playdate.update()
     if playdate.buttonJustPressed(playdate.kButtonDown) then
         scrollOffset += 20
         clampScroll()
+    end
+
+    if playdate.buttonJustPressed(playdate.kButtonB) then
+        if #historyStack > 0 then
+            local previousURL = table.remove(historyStack)
+            navigatingBack = true
+            statusMessage = "Loading previous page..."
+            pendingURL = previousURL
+        else
+            statusMessage = "No previous page"
+        end
     end
 
     -- Follow button under selection line
