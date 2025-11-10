@@ -5,8 +5,7 @@ import "CoreLibs/graphics"
 import "CoreLibs/ui"
 
 local gfx <const> = playdate.graphics
-local sites = import "sites"
-local htmlparser = import "htmlparser"
+local siteParsers = import "siteparsers"
 
 -- State
 local currentURL = nil
@@ -15,9 +14,8 @@ local scrollOffset = 0
 local statusMessage = "Connecting to WiFi..."
 local pendingURL = nil  -- URL to load in next update
 
--- Link navigation state
-local pageLinks = {}  -- Array of {text, url}
-local selectedLinkIndex = 0  -- 0 means no link selected
+-- Button selection state (determined during render)
+local hoveredButton = nil
 
 -- Network state
 local networkReady = false
@@ -28,72 +26,187 @@ local fetchConn = nil
 local fetchHTML = ""
 local fetchError = nil
 local fetchURL = nil
-local fetchSite = nil
+local fetchParser = nil
 
--- Parse HTML using lua-htmlparser and extract content with CSS selectors
-function parseHTML(html, selectors)
-    -- Parse HTML
-    local root = htmlparser.parse(html)
-    if not root then
-        return nil, "Failed to parse HTML"
+-- Rendering helpers
+local textFonts = {
+    regular = gfx.getSystemFont(gfx.font.kVariantNormal),
+    bold = gfx.getSystemFont(gfx.font.kVariantBold) or gfx.getSystemFont(gfx.font.kVariantNormal),
+    italic = gfx.getSystemFont(gfx.font.kVariantItalic) or gfx.getSystemFont(gfx.font.kVariantNormal)
+}
+local defaultFontHeight = textFonts.regular and textFonts.regular:getHeight() or 16
+local textLineHeight = math.max(defaultFontHeight, 16)
+local wordSpacing = 6
+
+local function tokenizeStyledWords(text)
+    local tokens = {}
+
+    if not text or #text == 0 then
+        return tokens
     end
 
-    -- Extract all links from the page
-    local links = {}
-    local allLinks = root:select("a")
-    if allLinks then
-        for _, link in ipairs(allLinks) do
-            local href = link.attributes and link.attributes.href
-            local linkText = link:getcontent()
-            if href and linkText and #linkText > 0 then
-                table.insert(links, {text = linkText, url = href})
-            end
-        end
-    end
+    local i = 1
+    local length = #text
 
-    -- Use the library's built-in selector support
-    local results = {}
+    while i <= length do
+        local char = text:sub(i, i)
 
-    for _, selector in ipairs(selectors) do
-        -- Use library's select() method
-        local elements = root:select(selector)
-
-        if elements then
-            for _, element in ipairs(elements) do
-                -- Get the raw HTML text
-                local htmlText = element:gettext()
-
-                if htmlText and #htmlText > 0 then
-                    -- Replace <a ...>text</a> with *text*
-                    local text = htmlText:gsub("<a[^>]*>([^<]*)</a>", "*%1*")
-
-                    -- Strip all remaining HTML tags
-                    text = text:gsub("<[^>]+>", "")
-
-                    -- Decode common HTML entities
-                    text = text:gsub("&nbsp;", " ")
-                    text = text:gsub("&amp;", "&")
-                    text = text:gsub("&lt;", "<")
-                    text = text:gsub("&gt;", ">")
-                    text = text:gsub("&quot;", "\"")
-                    text = text:gsub("&#39;", "'")
-
-                    -- Strip extra whitespace
-                    text = text:match("^%s*(.-)%s*$")
-
-                    if #text > 0 then
-                        table.insert(results, {
-                            type = element.name and element.name:lower() or "unknown",
-                            content = text
-                        })
-                    end
+        if char == "_" or char == "*" then
+            local closing = text:find(char, i + 1, true)
+            if closing then
+                local inner = text:sub(i + 1, closing - 1)
+                local style = char == "_" and "bold" or "italic"
+                for word in inner:gmatch("%S+") do
+                    table.insert(tokens, {text = word, style = style})
                 end
+                i = closing + 1
+            else
+                table.insert(tokens, {text = char, style = "regular"})
+                i += 1
+            end
+        elseif char:match("%s") then
+            i += 1
+        else
+            local nextSpecial = text:find("[_%*%s]", i)
+            local chunk
+            if nextSpecial then
+                chunk = text:sub(i, nextSpecial - 1)
+                i = nextSpecial
+            else
+                chunk = text:sub(i)
+                i = length + 1
+            end
+
+            if chunk and #chunk > 0 then
+                table.insert(tokens, {text = chunk, style = "regular"})
             end
         end
     end
 
-    -- Return results and links
-    return results, links
+    return tokens
+end
+
+local function drawWordsLine(words, startX, y)
+    local x = startX
+    for index, word in ipairs(words) do
+        if index > 1 then
+            x += wordSpacing
+        end
+        local font = textFonts[word.style] or textFonts.regular
+        gfx.setFont(font)
+        gfx.drawText(word.text, x, y)
+        x += gfx.getTextSize(word.text)
+    end
+end
+
+local function drawTextBlock(text, startX, startY, maxWidth)
+    local words = tokenizeStyledWords(text)
+    if #words == 0 then
+        return startY
+    end
+
+    local y = startY
+    local lineWords = {}
+    local lineWidth = 0
+
+    local function flushLine()
+        if #lineWords > 0 then
+            drawWordsLine(lineWords, startX, y)
+            y += textLineHeight
+        else
+            y += textLineHeight
+        end
+        lineWords = {}
+        lineWidth = 0
+    end
+
+    for _, word in ipairs(words) do
+        local font = textFonts[word.style] or textFonts.regular
+        gfx.setFont(font)
+        local wordWidth = gfx.getTextSize(word.text)
+        local spacing = (#lineWords > 0) and wordSpacing or 0
+
+        if lineWidth + spacing + wordWidth > maxWidth then
+            flushLine()
+            spacing = 0
+        end
+
+        if #lineWords > 0 then
+            lineWidth += wordSpacing
+        end
+
+        table.insert(lineWords, word)
+        lineWidth += wordWidth
+    end
+
+    flushLine()
+    return y
+end
+
+local function drawButtonElement(element, x, y, maxWidth)
+    local paddingX = 10
+    local paddingY = 6
+    local font = textFonts.bold or textFonts.regular
+    gfx.setFont(font)
+
+    local label = element.label or element.content or "Link"
+    local textWidth = gfx.getTextSize(label)
+    local buttonWidth = math.min(maxWidth, textWidth + paddingX * 2)
+    local buttonHeight = textLineHeight + paddingY * 2
+    local cornerRadius = 6
+
+    local isSelected = (y <= 10) and ((y + buttonHeight) >= 10)
+
+    if isSelected then
+        gfx.setColor(gfx.kColorBlack)
+        gfx.fillRoundRect(x, y, buttonWidth, buttonHeight, cornerRadius)
+        gfx.setImageDrawMode(gfx.kDrawModeFillWhite)
+    else
+        gfx.setColor(gfx.kColorBlack)
+        gfx.drawRoundRect(x, y, buttonWidth, buttonHeight, cornerRadius)
+        gfx.setImageDrawMode(gfx.kDrawModeCopy)
+    end
+
+    local textAreaWidth = math.max(0, buttonWidth - paddingX * 2)
+    local textAreaHeight = math.max(0, buttonHeight - paddingY * 2)
+    gfx.drawTextInRect(label, x + paddingX, y + paddingY, textAreaWidth, textAreaHeight)
+    gfx.setImageDrawMode(gfx.kDrawModeCopy)
+
+    return buttonHeight, isSelected
+end
+
+local function resolveURL(base, href)
+    if not href or href == "" then
+        return nil
+    end
+
+    if href:match("^https?://") then
+        return href
+    end
+
+    if href:match("^[%a]+:") then
+        return href
+    end
+
+    if not base then
+        return href
+    end
+
+    local origin = base:match("^(https?://[^/]+)")
+    if not origin then
+        return href
+    end
+
+    if href:sub(1, 1) == "/" then
+        return origin .. href
+    end
+
+    local path = base:match("^https?://[^/]+(.*/)")
+    if path then
+        return origin .. path .. href
+    end
+
+    return origin .. "/" .. href
 end
 
 function loadURL(url)
@@ -107,26 +220,26 @@ function loadURL(url)
     statusMessage = "Loading: " .. url
     scrollOffset = 0
 
-    -- Find matching site configuration
-    local matchedSite = nil
-    for _, site in ipairs(sites) do
-        if string.match(url, site.pattern) then
-            matchedSite = site
+    -- Find matching site parser
+    local matchedParser = nil
+    for _, parser in ipairs(siteParsers) do
+        if string.match(url, parser.pattern) then
+            matchedParser = parser
             break
         end
     end
 
-    if not matchedSite then
+    if not matchedParser then
         statusMessage = "Error: No rules for this URL"
         currentContent = nil
         return
     end
 
-    statusMessage = "Matched: " .. matchedSite.name
+    statusMessage = "Matched: " .. matchedParser.name
 
     -- Start async fetch
     fetchURL = url
-    fetchSite = matchedSite
+    fetchParser = matchedParser
     fetchHTML = ""
     fetchError = nil
     fetchState = "fetching"
@@ -272,75 +385,31 @@ function renderContent()
 
     -- Draw content
     if not currentContent then
-        gfx.drawText("Loading...", 10, 10)
+        gfx.drawText(statusMessage or "Loading...", 10, 10)
+        hoveredButton = nil
         return
     end
 
     local y = 10 - scrollOffset
-    local lineHeight = 16
+    local contentLeft = 10
+    local contentWidth = 380
+    local selectedButton = nil
 
     for _, element in ipairs(currentContent) do
-        local text = element.content
-
-        -- If a link is selected, replace it with italic version
-        if selectedLinkIndex > 0 and selectedLinkIndex <= #pageLinks then
-            local selectedLink = pageLinks[selectedLinkIndex]
-            -- Replace *linktext* with _linktext_ for the selected link
-            local escapedLinkText = selectedLink.text:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
-            text = text:gsub("%*(" .. escapedLinkText .. ")%*", "_%1_")
-        end
-
-        -- Different styling based on element type
-        if element.type == "h1" then
-            gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
-            lineHeight = 20
-        elseif element.type == "h2" then
-            gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
-            lineHeight = 18
-        elseif element.type == "h3" then
-            gfx.setFont(gfx.getSystemFont(gfx.font.kVariantBold))
-            lineHeight = 16
-        else
-            gfx.setFont(gfx.getSystemFont(gfx.font.kVariantNormal))
-            lineHeight = 16
-        end
-
-        -- Word wrap text
-        local maxWidth = 380
-        local words = {}
-        for word in string.gmatch(text, "%S+") do
-            table.insert(words, word)
-        end
-
-        local line = ""
-        for _, word in ipairs(words) do
-            local testLine = line == "" and word or line .. " " .. word
-            local textWidth = gfx.getTextSize(testLine)
-
-            if textWidth > maxWidth then
-                if line ~= "" then
-                    gfx.drawText(line, 10, y)
-                    y += lineHeight
-                    line = word
-                else
-                    -- Single word is too long, draw it anyway
-                    gfx.drawText(word, 10, y)
-                    y += lineHeight
-                    line = ""
-                end
-            else
-                line = testLine
+        if element.kind == "button" then
+            local height, isSelected = drawButtonElement(element, contentLeft, y, contentWidth)
+            if isSelected then
+                selectedButton = element
             end
+            y += height + 8
+        else
+            local text = element.content or ""
+            y = drawTextBlock(text, contentLeft, y, contentWidth)
+            y += 4
         end
-
-        if line ~= "" then
-            gfx.drawText(line, 10, y)
-            y += lineHeight
-        end
-
-        -- Add spacing after elements
-        y += 4
     end
+
+    hoveredButton = selectedButton
 end
 
 function playdate.update()
@@ -356,25 +425,27 @@ function playdate.update()
         fetchState = nil
         statusMessage = "Parsing HTML..."
 
-        -- Parse HTML with CSS selectors (returns Lua table and links)
-        local content, links = parseHTML(fetchHTML, fetchSite.selector)
-        if not content then
-            statusMessage = "Error: Parse failed"
+        if not fetchParser then
+            statusMessage = "Error: Missing parser for content"
             currentContent = nil
-            pageLinks = {}
-            selectedLinkIndex = 0
         else
-            currentContent = content
-            currentURL = fetchURL
-            pageLinks = links or {}
-            selectedLinkIndex = #pageLinks > 0 and 1 or 0  -- Select first link if available
-            statusMessage = "Loaded " .. #content .. " elements, " .. #pageLinks .. " links"
+            local content, parseErr = fetchParser.parse(fetchHTML, fetchURL)
+            if not content then
+                statusMessage = "Error: " .. (parseErr or "Parse failed")
+                currentContent = nil
+            else
+                currentContent = content
+                currentURL = fetchURL
+                statusMessage = "Loaded " .. #content .. " elements"
+            end
         end
+
+        hoveredButton = nil
 
         -- Clean up
         fetchHTML = ""
         fetchURL = nil
-        fetchSite = nil
+        fetchParser = nil
     elseif fetchState == "error" then
         fetchState = nil
         statusMessage = "Error: " .. (fetchError or "Unknown error")
@@ -383,7 +454,7 @@ function playdate.update()
         -- Clean up
         fetchHTML = ""
         fetchURL = nil
-        fetchSite = nil
+        fetchParser = nil
         fetchError = nil
     end
 
@@ -410,52 +481,14 @@ function playdate.update()
         scrollOffset += 20
     end
 
-    -- Link navigation
-    if playdate.buttonJustPressed(playdate.kButtonLeft) then
-        if #pageLinks > 0 then
-            selectedLinkIndex -= 1
-            if selectedLinkIndex < 1 then
-                selectedLinkIndex = #pageLinks
-            end
-        end
-    end
-
-    if playdate.buttonJustPressed(playdate.kButtonRight) then
-        if #pageLinks > 0 then
-            selectedLinkIndex += 1
-            if selectedLinkIndex > #pageLinks then
-                selectedLinkIndex = 1
-            end
-        end
-    end
-
-    -- Follow selected link
+    -- Follow button under selection line
     if playdate.buttonJustPressed(playdate.kButtonA) then
-        if selectedLinkIndex > 0 and selectedLinkIndex <= #pageLinks then
-            local selectedLink = pageLinks[selectedLinkIndex]
-            local url = selectedLink.url
-
-            -- Handle relative URLs
-            if url:sub(1, 4) ~= "http" then
-                -- Relative URL - resolve against current URL
-                if currentURL then
-                    local base = currentURL:match("^(https?://[^/]+)")
-                    if url:sub(1, 1) == "/" then
-                        url = base .. url
-                    else
-                        -- Relative to current path
-                        local path = currentURL:match("^https?://[^/]+(.*/)")
-                        if path then
-                            url = base .. path .. url
-                        else
-                            url = base .. "/" .. url
-                        end
-                    end
-                end
+        if hoveredButton and hoveredButton.url then
+            local targetURL = resolveURL(currentURL, hoveredButton.url)
+            if targetURL then
+                pendingURL = targetURL
+                print("Following link:", targetURL)
             end
-
-            pendingURL = url
-            print("Following link:", url)
         end
     end
 end
