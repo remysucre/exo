@@ -241,6 +241,7 @@ function fetchHTMLAsync(url)
     if path == "" then
         path = "/"
     end
+    print("Fetching URL:", url, "Server:", server, "Path:", path)
 
     local useSSL = string.match(url, "^https://") ~= nil
     print("Server:", server, "Path:", path, "SSL:", useSSL)
@@ -341,11 +342,15 @@ function fetchHTMLAsync(url)
 
     -- Start the request
     print("Starting GET request...")
-    local success, err = fetchConn:get(path, {
-        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        ["Accept-Language"] = "en-US,en;q=0.9"
-    })
+    local headerLines = {
+        "Host: " .. server,
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language: en-US,en;q=0.9",
+        "Connection: close"
+    }
+    -- local success, err = fetchConn:get(path, table.concat(headerLines, "\r\n"))
+    local success, err = fetchConn:get(path)
 
     if not success then
         fetchState = "error"
@@ -409,6 +414,10 @@ function playdate.update()
             statusMessage = "Error: Missing parser for content"
             currentContent = nil
         else
+            print("Using parser:", fetchParser.name or "unknown")
+            print("---- HTML START ----")
+            print(fetchHTML)
+            print("---- HTML END ----")
             local content, parseErr = fetchParser.parse(fetchHTML, fetchURL)
             if not content then
                 statusMessage = "Error: " .. (parseErr or "Parse failed")
@@ -484,7 +493,7 @@ playdate.network.setEnabled(true, function(err)
         print("Network enabled")
         networkReady = true
         -- Load page immediately
-        pendingURL = "https://remy.wang/npr/nx-s1-5602930.html"
+        pendingURL = "https://www.cbc.ca/lite/story/9.6972932"
         print("Auto-loading URL:", pendingURL)
     end
 end)

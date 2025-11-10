@@ -205,6 +205,78 @@ local function parseNPRArticle(html)
     return elements
 end
 
+local function parseCBCLiteArticle(html)
+    local root = htmlparser.parse(html)
+    if not root then
+        return nil, "Failed to parse HTML"
+    end
+
+    local article = root:select("article#article")[1] or root:select("article")[1]
+    if not article then
+        return nil, "No article element"
+    end
+
+    local elements = {}
+
+    local titleNode = article:select("h1, h2")[1]
+    if titleNode then
+        local titleText = extractText(titleNode)
+        if titleText then
+            addText(elements, "_" .. titleText .. "_")
+        end
+    end
+
+    local usedParagraphs = {}
+    local metaNodes = article:select("> p")
+    if metaNodes then
+        for index, node in ipairs(metaNodes) do
+            local text = extractText(node)
+            if text and #text > 0 then
+                addText(elements, text)
+                usedParagraphs[node] = true
+            end
+            if index >= 2 then
+                break
+            end
+        end
+    end
+
+    addSpacer(elements, 8)
+
+    local segmentNodes = article:select("div.article_segment__aglub p")
+    local paragraphNodes = {}
+
+    if segmentNodes then
+        for _, p in ipairs(segmentNodes) do
+            table.insert(paragraphNodes, p)
+        end
+    else
+        paragraphNodes = article:select("p") or {}
+    end
+    if paragraphNodes then
+        for _, p in ipairs(paragraphNodes) do
+            local class = p.attributes and p.attributes.class or ""
+            if not usedParagraphs[p] and not class:match("embed") and not class:match("related") then
+                local htmlText = p:gettext()
+                if htmlText then
+                    htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
+                    htmlText = htmlText:gsub("<[^>]+>", "")
+                    local cleaned = cleanText(htmlText)
+                    if cleaned and #cleaned > 0 then
+                        addText(elements, cleaned)
+                    end
+                end
+            end
+        end
+    end
+
+    if #elements == 0 then
+        return nil, "No recognizable content"
+    end
+
+    return elements
+end
+
 return {
     {
         name = "NPR frontpage",
@@ -213,7 +285,12 @@ return {
     },
     {
         name = "NPR articles",
-        pattern = "^https?://remy%.wang/npr/.*",
+        pattern = "^https?://text%.npr%.org/nx.*",
         parse = parseNPRArticle
+    },
+    {
+        name = "CBC Lite Article",
+        pattern = "^https?://www.cbc.ca/lite/story/9.6972932",
+        parse = parseCBCLiteArticle
     }
 }
