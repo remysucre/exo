@@ -165,10 +165,60 @@ local function parseRemy(html)
     return elements
 end
 
+local function parseNPRText(html)
+    local root = htmlparser.parse(html)
+    if not root then
+        return nil, "Failed to parse HTML"
+    end
+
+    local elements = {}
+
+    local headingNodes = root:select(".topic-heading")
+    if (not headingNodes or not headingNodes[1]) then
+        headingNodes = root:select("h1")
+    end
+    if headingNodes and headingNodes[1] then
+        local headingText = extractText(headingNodes[1])
+        if headingText then
+            addText(elements, "_" .. headingText .. "_")
+        end
+    end
+
+    local dateNodes = root:select(".topic-date")
+    if dateNodes and dateNodes[1] then
+        local dateText = extractText(dateNodes[1])
+        if dateText then
+            addText(elements, "*" .. dateText .. "*")
+        end
+    end
+
+    local listLinks = root:select(".topic-container li a")
+    if listLinks then
+        for _, link in ipairs(listLinks) do
+            local headline = extractText(link)
+            if headline then
+                addText(elements, headline)
+                addButton(elements, "Read more", link.attributes and link.attributes.href)
+            end
+        end
+    end
+
+    if #elements == 0 then
+        return nil, "No recognizable content"
+    end
+
+    return elements
+end
+
 return {
     {
         name = "Remy's Homepage",
-        pattern = "^https?://remy%.wang/.*",
+        pattern = "^https?://remy%.wang/index%.html",
         parse = parseRemy
+    },
+    {
+        name = "NPR Text",
+        pattern = "https://remy.wang/npr/index.html",
+        parse = parseNPRText
     }
 }
