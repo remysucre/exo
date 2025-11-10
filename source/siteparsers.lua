@@ -33,6 +33,7 @@ local function cleanText(text)
         :gsub("\t", " ")
         :gsub("\n+", " ")
         :gsub("—", "-")
+        :gsub("<[^>]*>(.-)</.*>", "")
 
     cleaned = cleaned:gsub("&[#%w]+;", function(entity)
         if entityMap[entity] then
@@ -218,11 +219,11 @@ local function parseCBCLiteArticle(html)
 
     local elements = {}
 
-    local titleNode = article:select("h1, h2")[1]
+    local titleNode = article:select("h2")[1]
     if titleNode then
         local titleText = extractText(titleNode)
         if titleText then
-            addText(elements, "_" .. titleText .. "_")
+            addText(elements, "*" .. titleText .. "*")
         end
     end
 
@@ -248,43 +249,13 @@ local function parseCBCLiteArticle(html)
 
     addSpacer(elements, 8)
 
-    local segmentContainers = article:select("[class*=\"article_segment__\"]")
-    if segmentContainers and #segmentContainers > 0 then
-        for _, node in ipairs(segmentContainers) do
-            local classAttr = node.attributes and node.attributes.class or ""
-            if not classAttr:match("embed") and not classAttr:match("related") then
-                if node.name == "p" then
-                    if not metaSeen[node] then
-                        local htmlText = node:gettext()
-                        if htmlText then
-                            htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
-                            htmlText = htmlText:gsub("<[^>]+>", "")
-                            local cleaned = cleanText(htmlText)
-                            if cleaned and #cleaned > 0 then
-                                addText(elements, cleaned)
-                            end
-                        end
-                    end
-                else
-                    local innerParagraphs = node:select("p")
-                    if innerParagraphs and #innerParagraphs > 0 then
-                        for _, p in ipairs(innerParagraphs) do
-                            local htmlText = p:gettext()
-                            if htmlText then
-                                htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
-                                htmlText = htmlText:gsub("<[^>]+>", "")
-                                local cleaned = cleanText(htmlText)
-                                if cleaned and #cleaned > 0 then
-                                    addText(elements, cleaned)
-                                end
-                            end
-                        end
-                    else
-                        local text = extractText(node)
-                        if text and #text > 0 then
-                            addText(elements, text)
-                        end
-                    end
+    local segmentNodes = article:select("[class*=\"article_segment__aglub\"]")
+    if segmentNodes and #segmentNodes > 0 then
+        for _, node in ipairs(segmentNodes) do
+            if #node.nodes == 0 then
+                local text = extractText(node)
+                if text and #text > 0 then
+                    addText(elements, text)
                 end
             end
         end
