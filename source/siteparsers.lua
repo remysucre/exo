@@ -221,12 +221,14 @@ local function parseCBCLiteFrontpage(html)
         for _, link in ipairs(links) do
             local title = extractText(link)
             local href = link.attributes and link.attributes.href
-            if title and #title > 0 then
-                addText(elements, title)
-                if href and #href > 0 then
-                    addButton(elements, "Read more", href)
+            if string.match(href, "lite") then
+                if title and #title > 0 then
+                    addText(elements, title)
+                    if href and #href > 0 then
+                        addButton(elements, "Read more", href)
+                    end
+                    addSpacer(elements, 6)
                 end
-                addSpacer(elements, 6)
             end
         end
     end
