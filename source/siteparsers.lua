@@ -107,72 +107,6 @@ local function addButton(elements, label, url)
     end
 end
 
-local function parseRemy(html)
-    local root = htmlparser.parse(html)
-    if not root then
-        return nil, "Failed to parse HTML"
-    end
-
-    local elements = {}
-
-    -- Heading as bold text
-    local headings = root:select("h1")
-    if headings and headings[1] then
-        local headingText = extractText(headings[1])
-        if headingText then
-            addText(elements, "_" .. headingText .. "_")
-        end
-    end
-
-    -- First paragraph buttons (site links)
-    local paragraphs = root:select("p")
-    if paragraphs and paragraphs[1] then
-        local navLinks = paragraphs[1]:select("a")
-        if navLinks then
-            for _, link in ipairs(navLinks) do
-                local label = extractText(link)
-                local href = link.attributes and link.attributes.href
-                addButton(elements, label, href)
-            end
-        end
-    end
-
-    -- Second paragraph: intro text + inline button if present
-    if paragraphs and paragraphs[2] then
-        local introNode = paragraphs[2]
-        addText(elements, extractText(introNode))
-
-        local inlineLinks = introNode:select("a")
-        if inlineLinks and inlineLinks[1] then
-            local link = inlineLinks[1]
-            addButton(elements, extractText(link), link.attributes and link.attributes.href)
-        end
-    end
-
-    -- Third paragraph: standalone button (Joining Remy's lab)
-    if paragraphs and paragraphs[3] then
-        local callout = paragraphs[3]
-        local link = callout:select("a")
-        if link and link[1] then
-            local node = link[1]
-            addButton(elements, extractText(node), node.attributes and node.attributes.href)
-        else
-            addText(elements, extractText(callout))
-        end
-    end
-
-    -- Fourth paragraph text before student list
-    if paragraphs and paragraphs[4] then
-        addText(elements, extractText(paragraphs[4]))
-    end
-
-    if #elements == 0 then
-        return nil, "No recognizable content"
-    end
-
-    return elements
-end
-
 local function parseNPRText(html)
     local root = htmlparser.parse(html)
     if not root then
@@ -221,11 +155,6 @@ local function parseNPRText(html)
 end
 
 return {
-    {
-        name = "Remy's Homepage",
-        pattern = "^https?://remy%.wang/index%.html",
-        parse = parseRemy
-    },
     {
         name = "NPR Text",
         pattern = "https://remy.wang/npr/index.html",
