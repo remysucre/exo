@@ -10,9 +10,16 @@ local siteParsers = import "siteparsers"
 -- State
 local currentURL = nil
 local currentContent = nil
+local screenWidth, screenHeight = 400, 240
 local scrollOffset = 0
 local statusMessage = "Connecting to WiFi..."
 local pendingURL = nil  -- URL to load in next update
+local cursorY = screenHeight * 0.5
+local cursorHalfHeight = 5
+local cursorWidth = 5
+local cursorMinY = cursorHalfHeight
+local cursorMaxY = screenHeight - cursorHalfHeight
+local cursorHalfPageStep = screenHeight * 0.5
 
 -- Button selection state (determined during render)
 local hoveredButton = nil
@@ -48,12 +55,13 @@ gfx.setFontFamily({
 local defaultFontHeight = textFonts.regular and textFonts.regular:getHeight() or 16
 local textLineHeight = math.max(defaultFontHeight, 16)
 local contentPadding = 10
-local contentWidth = 400 - contentPadding * 2
+local contentWidth = screenWidth - contentPadding * 2
 local paragraphSpacing = 4
 local buttonSpacing = 8
+local cursorSmallStep = textLineHeight + paragraphSpacing
 
 local function clampScroll()
-    local viewportHeight = 240
+    local viewportHeight = screenHeight
     local maxOffset = math.max(0, pageHeight - viewportHeight)
     if scrollOffset > maxOffset then
         scrollOffset = maxOffset
@@ -61,6 +69,40 @@ local function clampScroll()
     if scrollOffset < 0 then
         scrollOffset = 0
     end
+end
+
+local function scrollBy(amount)
+    if amount == 0 then
+        return 0
+    end
+
+    local previous = scrollOffset
+    scrollOffset += amount
+    clampScroll()
+    return scrollOffset - previous
+end
+
+local function moveCursor(delta)
+    if delta == 0 then
+        return
+    end
+
+    local target = cursorY + delta
+    if target < cursorMinY then
+        local overshoot = cursorMinY - target
+        cursorY = cursorMinY
+        scrollBy(-overshoot)
+        return
+    end
+
+    if target > cursorMaxY then
+        local overshoot = target - cursorMaxY
+        cursorY = cursorMaxY
+        scrollBy(overshoot)
+        return
+    end
+
+    cursorY = target
 end
 
 local function preparePageImage(elements)
@@ -105,7 +147,7 @@ local function preparePageImage(elements)
         end
     end
 
-    local totalHeight = math.max(currentY + 200, (240 - contentPadding * 2))
+    local totalHeight = math.max(currentY + 20, (240 - contentPadding * 2))
     local imageHeight = totalHeight + contentPadding * 2
     local imageWidth = contentWidth + contentPadding * 2
 
@@ -126,7 +168,6 @@ local function preparePageImage(elements)
 end
 
 local selectionIndicatorHeight = 2
-local selectionLineY = 100
 local linkHighlightPadding = 2
 
 local function drawButtonElement(label, x, y, isSelected)
@@ -386,11 +427,11 @@ function renderContent()
             goto continue
         end
 
-        if screenY > 260 then
+        if screenY > screenHeight + 20 then
             break
         end
 
-        local isSelected = (screenY <= selectionLineY) and (buttonBottom >= selectionLineY)
+        local isSelected = (cursorY >= screenY) and (cursorY <= buttonBottom)
         drawButtonElement(button.label, contentPadding, screenY, isSelected)
         if isSelected then
             hoveredButton = button
@@ -398,6 +439,18 @@ function renderContent()
 
         ::continue::
     end
+end
+
+local function drawCursor()
+    gfx.setColor(gfx.kColorBlack)
+    gfx.fillTriangle(
+        0,
+        cursorY - cursorHalfHeight,
+        cursorWidth,
+        cursorY,
+        0,
+        cursorY + cursorHalfHeight
+    )
 end
 
 function playdate.update()
@@ -460,23 +513,29 @@ function playdate.update()
     end
 
     renderContent()
+    drawCursor()
 
     -- Handle input
     local crankChange = playdate.getCrankChange()
     if crankChange ~= 0 then
-        scrollOffset += crankChange
-        clampScroll()
+        moveCursor(crankChange)
     end
 
     -- Button controls
     if playdate.buttonJustPressed(playdate.kButtonUp) then
-        scrollOffset -= 20
-        clampScroll()
+        moveCursor(-cursorSmallStep)
     end
 
     if playdate.buttonJustPressed(playdate.kButtonDown) then
-        scrollOffset += 20
-        clampScroll()
+        moveCursor(cursorSmallStep)
+    end
+
+    if playdate.buttonJustPressed(playdate.kButtonLeft) then
+        moveCursor(-cursorHalfPageStep)
+    end
+
+    if playdate.buttonJustPressed(playdate.kButtonRight) then
+        moveCursor(cursorHalfPageStep)
     end
 
     if playdate.buttonJustPressed(playdate.kButtonB) then
@@ -491,7 +550,7 @@ function playdate.update()
         end
     end
 
-    -- Follow button under selection line
+    -- Follow button currently under cursor
     if playdate.buttonJustPressed(playdate.kButtonA) then
         if hoveredButton and hoveredButton.url then
             local targetURL = resolveURL(currentURL, hoveredButton.url)
