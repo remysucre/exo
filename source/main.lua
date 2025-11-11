@@ -19,7 +19,6 @@ local cursorHalfHeight = 5
 local cursorWidth = 5
 local cursorMinY = cursorHalfHeight
 local cursorMaxY = screenHeight - cursorHalfHeight
-local cursorHalfPageStep = screenHeight * 0.5
 
 -- Button selection state (determined during render)
 local hoveredButton = nil
@@ -58,7 +57,6 @@ local contentPadding = 10
 local contentWidth = screenWidth - contentPadding * 2
 local paragraphSpacing = 4
 local buttonSpacing = 8
-local cursorSmallStep = textLineHeight + paragraphSpacing
 
 local function clampScroll()
     local viewportHeight = screenHeight
@@ -522,22 +520,6 @@ function playdate.update()
     end
 
     -- Button controls
-    if playdate.buttonJustPressed(playdate.kButtonUp) then
-        moveCursor(-cursorSmallStep)
-    end
-
-    if playdate.buttonJustPressed(playdate.kButtonDown) then
-        moveCursor(cursorSmallStep)
-    end
-
-    if playdate.buttonJustPressed(playdate.kButtonLeft) then
-        moveCursor(-cursorHalfPageStep)
-    end
-
-    if playdate.buttonJustPressed(playdate.kButtonRight) then
-        moveCursor(cursorHalfPageStep)
-    end
-
     if playdate.buttonJustPressed(playdate.kButtonB) then
         if #historyStack > 0 then
             local previousURL = table.remove(historyStack)
