@@ -3,8 +3,10 @@
 
 import "CoreLibs/graphics"
 import "CoreLibs/ui"
+import "CoreLibs/sprites"
 
 local gfx <const> = playdate.graphics
+local sprite <const> = gfx.sprite
 local siteParsers = import "siteparsers"
 
 -- State
@@ -14,11 +16,15 @@ local scrollOffset = 0
 local statusMessage = "Connecting to WiFi..."
 local pendingURL = nil  -- URL to load in next update
 
--- Button selection state (determined during render)
-local hoveredButton = nil
 local pageImage = nil
-local pageButtons = {}
 local pageHeight = 0
+local linkSprites = {}
+local cursorSprite = nil
+local cursorSize = 8
+local cursorPosition = { x = 200, y = 120 }
+local cursorSpeed = 3
+local hoveredLinkSprite = nil
+local linkHighlightPadding = 2
 
 -- Network state
 local networkReady = false
@@ -63,10 +69,231 @@ local function clampScroll()
     end
 end
 
+local function clearLinkSprites()
+    for _, spr in ipairs(linkSprites) do
+        spr:remove()
+    end
+    linkSprites = {}
+    hoveredLinkSprite = nil
+end
+
+local function ensureCursorSprite()
+    if cursorSprite then
+        return
+    end
+
+    cursorSprite = sprite.new()
+    cursorSprite:setSize(cursorSize, cursorSize)
+    cursorSprite:setCenter(0.5, 0.5)
+    cursorSprite:setCollideRect(0, 0, cursorSize, cursorSize)
+    cursorSprite.isHoveringLink = false
+    function cursorSprite:draw(x, y, w, h)
+        if self.isHoveringLink then
+            gfx.setColor(gfx.kColorBlack)
+            gfx.fillRect(0, 0, w, h)
+            gfx.setColor(gfx.kColorWhite)
+            gfx.drawRect(0, 0, w, h)
+            gfx.setColor(gfx.kColorBlack)
+        else
+            gfx.drawRect(0, 0, w, h)
+        end
+    end
+    cursorSprite:setZIndex(1000)
+    cursorSprite:add()
+    cursorSprite:moveTo(cursorPosition.x, cursorPosition.y)
+end
+
+ensureCursorSprite()
+
+local function moveCursor(dx, dy)
+    if not cursorSprite then
+        return
+    end
+    if dx == 0 and dy == 0 then
+        return
+    end
+
+    cursorPosition.x = cursorPosition.x + dx
+    cursorPosition.y = cursorPosition.y + dy
+
+    local halfSize = cursorSize / 2
+    cursorPosition.x = math.max(halfSize, math.min(400 - halfSize, cursorPosition.x))
+    cursorPosition.y = math.max(halfSize, math.min(240 - halfSize, cursorPosition.y))
+    cursorSprite:moveTo(cursorPosition.x, cursorPosition.y)
+end
+
+local function attachLinkSprite(x, y, width, height, url)
+    if not url or #url == 0 then
+        return
+    end
+
+    local spr = sprite.new()
+    spr:setSize(width, height)
+    spr:setCenter(0, 0)
+    spr:setCollideRect(0, 0, width, height)
+    spr.pageX = x
+    spr.pageY = y
+    spr.wordWidth = width
+    spr.wordHeight = height
+    spr.linkURL = url
+    function spr:draw() end
+    spr:setZIndex(-10)
+    spr:add()
+    table.insert(linkSprites, spr)
+end
+
+local function updateLinkSpritePositions(drawOffset)
+    for _, spr in ipairs(linkSprites) do
+        local screenY = spr.pageY - drawOffset
+        spr:moveTo(
+            spr.pageX + spr.wordWidth / 2,
+            screenY + spr.wordHeight / 2
+        )
+    end
+end
+
+local function tokenizeText(text)
+    local tokens = {}
+    if not text then
+        return tokens
+    end
+
+    local len = #text
+    local i = 1
+    while i <= len do
+        local char = text:sub(i, i)
+        if char:match("%s") then
+            local j = i
+            while j <= len and text:sub(j, j):match("%s") do
+                j = j + 1
+            end
+            table.insert(tokens, {
+                type = "space",
+                value = text:sub(i, j - 1)
+            })
+            i = j
+        else
+            local j = i
+            while j <= len and not text:sub(j, j):match("%s") do
+                j = j + 1
+            end
+            table.insert(tokens, {
+                type = "word",
+                value = text:sub(i, j - 1)
+            })
+            i = j
+        end
+    end
+
+    return tokens
+end
+
+local function markSkippableSpaces(tokens)
+    for idx, token in ipairs(tokens) do
+        if token.type == "space" then
+            local prev = tokens[idx - 1]
+            local nextToken = tokens[idx + 1]
+            if prev and prev.type == "word" then
+                local prevLower = prev.value:lower()
+                if prevLower == "<a" or prevLower:match("^href=") then
+                    token.skip = true
+                end
+            end
+            if nextToken and nextToken.type == "word" and nextToken.value:lower() == "</a>" then
+                token.skip = true
+            end
+        end
+    end
+end
+
+local function extractHrefValue(word)
+    return word:match("href%s*=%s*\"([^\"]+)\"")
+        or word:match("href%s*=%s*'([^']+)'")
+        or word:match("href%s*=%s*([^%s>]+)")
+end
+
+local function layoutTextBlock(text, startY, words)
+    if not text or #text == 0 then
+        return startY
+    end
+
+    local tokens = tokenizeText(text)
+    if #tokens == 0 then
+        return startY
+    end
+
+    markSkippableSpaces(tokens)
+
+    local lineX = 0
+    local lineY = startY
+    local linkActive = false
+    local currentLink = nil
+    local blockBottom = lineY + textLineHeight
+
+    for _, token in ipairs(tokens) do
+        if token.type == "word" then
+            local lowerValue = token.value:lower()
+            if lowerValue == "<a" then
+                linkActive = true
+                currentLink = nil
+            elseif lowerValue == "</a>" then
+                linkActive = false
+                currentLink = nil
+            elseif linkActive and not currentLink and lowerValue:match("^href=") then
+                currentLink = extractHrefValue(token.value)
+            else
+                local wordWidth = gfx.getTextSize(token.value)
+                if lineX > 0 and lineX + wordWidth > contentWidth then
+                    lineX = 0
+                    lineY = lineY + textLineHeight
+                end
+
+                table.insert(words, {
+                    text = token.value,
+                    x = lineX,
+                    y = lineY,
+                    width = wordWidth,
+                    height = textLineHeight,
+                    link = (linkActive and currentLink) or nil
+                })
+
+                lineX = lineX + wordWidth
+            end
+        elseif not token.skip then
+            local whitespace = token.value
+            local newlineCount = 0
+            whitespace = whitespace:gsub("\n", function()
+                newlineCount = newlineCount + 1
+                return ""
+            end)
+
+            if newlineCount > 0 then
+                lineX = 0
+                lineY = lineY + textLineHeight * newlineCount
+            end
+
+            local spaceCount = #whitespace
+            if spaceCount > 0 then
+                local spaceWidth = gfx.getTextSize(" ")
+                for _ = 1, spaceCount do
+                    if lineX + spaceWidth > contentWidth then
+                        lineX = 0
+                        lineY = lineY + textLineHeight
+                    end
+                    lineX = lineX + spaceWidth
+                end
+            end
+        end
+
+    end
+
+    blockBottom = math.max(blockBottom, lineY + textLineHeight)
+    return blockBottom
+end
 local function preparePageImage(elements)
     pageImage = nil
-    pageButtons = {}
     pageHeight = 0
+    clearLinkSprites()
 
     if not elements or #elements == 0 then
         statusMessage = "Loading..."
@@ -75,38 +302,35 @@ local function preparePageImage(elements)
 
     gfx.setFont(textFonts.regular)
 
-    local textCommands = {}
+    local layout = {
+        words = {},
+        buttons = {}
+    }
     local currentY = 0
 
     for _, element in ipairs(elements) do
         if element.kind == "spacer" then
-            currentY += element.size or paragraphSpacing
+            currentY = currentY + (element.size or paragraphSpacing)
         elseif element.kind == "button" then
             local label = element.label or element.content or "Link"
-            local _, height = gfx.getTextSize(label)
-            height = height or textLineHeight
-            table.insert(pageButtons, {
+            local _, textHeight = gfx.getTextSize(label)
+            local buttonHeight = (textHeight or textLineHeight) + linkHighlightPadding * 2
+            table.insert(layout.buttons, {
                 label = label,
                 url = element.url,
                 y = currentY,
-                height = height
+                height = buttonHeight
             })
-            currentY += height + buttonSpacing
+            currentY = currentY + buttonHeight + buttonSpacing
         else
             local text = element.content or ""
-            local _, height = gfx.getTextSizeForMaxWidth(text, contentWidth)
-            height = height or textLineHeight
-            table.insert(textCommands, {
-                text = text,
-                y = currentY,
-                height = height
-            })
-            currentY += height + paragraphSpacing
+            local blockBottom = layoutTextBlock(text, currentY, layout.words)
+            currentY = blockBottom + paragraphSpacing
         end
     end
 
-    local totalHeight = math.max(currentY + 200, (240 - contentPadding * 2))
-    local imageHeight = totalHeight + contentPadding * 2
+    local contentHeight = math.max(currentY, (240 - contentPadding * 2))
+    local imageHeight = contentHeight + contentPadding * 2
     local imageWidth = contentWidth + contentPadding * 2
 
     local image = gfx.image.new(imageWidth, imageHeight)
@@ -114,8 +338,42 @@ local function preparePageImage(elements)
     gfx.clear(gfx.kColorWhite)
     gfx.setFont(textFonts.regular)
 
-    for _, command in ipairs(textCommands) do
-        gfx.drawText(command.text, contentPadding, contentPadding + command.y, contentWidth, command.height)
+    for _, word in ipairs(layout.words) do
+        local drawX = contentPadding + word.x
+        local drawY = contentPadding + word.y
+
+        if word.link then
+            gfx.setColor(gfx.kColorBlack)
+            gfx.fillRect(drawX - 1, drawY, word.width + 2, word.height)
+            gfx.setImageDrawMode(gfx.kDrawModeFillWhite)
+        else
+            gfx.setImageDrawMode(gfx.kDrawModeCopy)
+        end
+
+        gfx.drawText(word.text, drawX, drawY)
+
+        if word.link then
+            attachLinkSprite(drawX - 1, drawY, word.width + 2, word.height, word.link)
+        end
+    end
+
+    gfx.setImageDrawMode(gfx.kDrawModeCopy)
+
+    for _, button in ipairs(layout.buttons) do
+        local label = button.label or "Link"
+        local textWidth, _ = gfx.getTextSize(label)
+        local buttonWidth = math.min(textWidth or contentWidth, contentWidth)
+        local drawX = contentPadding
+        local drawY = contentPadding + button.y
+        local height = button.height
+
+        gfx.setColor(gfx.kColorBlack)
+        gfx.fillRoundRect(drawX - linkHighlightPadding, drawY, buttonWidth + linkHighlightPadding * 2, height, 4)
+        gfx.setImageDrawMode(gfx.kDrawModeFillWhite)
+        gfx.drawText(label, drawX, drawY + linkHighlightPadding)
+        gfx.setImageDrawMode(gfx.kDrawModeCopy)
+
+        attachLinkSprite(drawX - linkHighlightPadding, drawY, buttonWidth + linkHighlightPadding * 2, height, button.url)
     end
 
     gfx.unlockFocus()
@@ -123,36 +381,6 @@ local function preparePageImage(elements)
 
     pageImage = image
     pageHeight = imageHeight
-end
-
-local selectionIndicatorHeight = 2
-local selectionLineY = 100
-local linkHighlightPadding = 2
-
-local function drawButtonElement(label, x, y, isSelected)
-    gfx.setFont(textFonts.regular)
-
-    local textWidth, textHeight = gfx.getTextSize(label)
-    local buttonHeight = textHeight or textLineHeight
-
-    if isSelected then
-        gfx.setColor(gfx.kColorBlack)
-        gfx.fillRect(
-            x - linkHighlightPadding,
-            y - linkHighlightPadding,
-            (textWidth or 0) + linkHighlightPadding * 2,
-            buttonHeight + linkHighlightPadding * 2
-        )
-        gfx.setImageDrawMode(gfx.kDrawModeFillWhite)
-    else
-        gfx.setImageDrawMode(gfx.kDrawModeCopy)
-    end
-
-    local width = gfx.drawText(label, x, y)
-    gfx.setImageDrawMode(gfx.kDrawModeCopy)
-
-    gfx.drawLine(x, y + buttonHeight + selectionIndicatorHeight, x + width, y + buttonHeight + selectionIndicatorHeight)
-
 end
 
 local function resolveURL(base, href)
@@ -370,33 +598,53 @@ function renderContent()
 
     if not pageImage then
         gfx.drawText(statusMessage or "Loading...", contentPadding, contentPadding)
-        hoveredButton = nil
+        clearLinkSprites()
         return
     end
 
     local drawOffset = math.floor(scrollOffset + 0.5)
     pageImage:draw(0, -drawOffset)
-    hoveredButton = nil
+    updateLinkSpritePositions(drawOffset)
+end
 
-    for _, button in ipairs(pageButtons) do
-        local screenY = contentPadding + button.y - drawOffset
-        local buttonBottom = screenY + button.height
+gfx.sprite.setBackgroundDrawingCallback(function()
+    renderContent()
+end)
 
-        if buttonBottom < -20 then
-            goto continue
-        end
+local function refreshHoveredLink()
+    hoveredLinkSprite = nil
+    if not cursorSprite then
+        return
+    end
 
-        if screenY > 260 then
+    local overlapping = cursorSprite:overlappingSprites()
+    for _, spr in ipairs(overlapping) do
+        if spr.linkURL then
+            hoveredLinkSprite = spr
             break
         end
+    end
 
-        local isSelected = (screenY <= selectionLineY) and (buttonBottom >= selectionLineY)
-        drawButtonElement(button.label, contentPadding, screenY, isSelected)
-        if isSelected then
-            hoveredButton = button
-        end
+    cursorSprite.isHoveringLink = hoveredLinkSprite ~= nil
+end
 
-        ::continue::
+local function handleCursorInput()
+    local dx, dy = 0, 0
+    if playdate.buttonIsPressed(playdate.kButtonLeft) then
+        dx = dx - cursorSpeed
+    end
+    if playdate.buttonIsPressed(playdate.kButtonRight) then
+        dx = dx + cursorSpeed
+    end
+    if playdate.buttonIsPressed(playdate.kButtonUp) then
+        dy = dy - cursorSpeed
+    end
+    if playdate.buttonIsPressed(playdate.kButtonDown) then
+        dy = dy + cursorSpeed
+    end
+
+    if dx ~= 0 or dy ~= 0 then
+        moveCursor(dx, dy)
     end
 end
 
@@ -439,7 +687,7 @@ function playdate.update()
             end
         end
 
-        hoveredButton = nil
+        hoveredLinkSprite = nil
 
         -- Clean up
         fetchHTML = ""
@@ -459,23 +707,13 @@ function playdate.update()
         navigatingBack = false
     end
 
-    renderContent()
+    handleCursorInput()
+    refreshHoveredLink()
 
     -- Handle input
     local crankChange = playdate.getCrankChange()
     if crankChange ~= 0 then
-        scrollOffset += crankChange
-        clampScroll()
-    end
-
-    -- Button controls
-    if playdate.buttonJustPressed(playdate.kButtonUp) then
-        scrollOffset -= 20
-        clampScroll()
-    end
-
-    if playdate.buttonJustPressed(playdate.kButtonDown) then
-        scrollOffset += 20
+        scrollOffset = scrollOffset + crankChange
         clampScroll()
     end
 
@@ -491,10 +729,9 @@ function playdate.update()
         end
     end
 
-    -- Follow button under selection line
     if playdate.buttonJustPressed(playdate.kButtonA) then
-        if hoveredButton and hoveredButton.url then
-            local targetURL = resolveURL(currentURL, hoveredButton.url)
+        if hoveredLinkSprite and hoveredLinkSprite.linkURL then
+            local targetURL = resolveURL(currentURL, hoveredLinkSprite.linkURL)
             if targetURL then
                 pageImage = nil
                 statusMessage = "Loading..."
@@ -503,6 +740,9 @@ function playdate.update()
             end
         end
     end
+
+    gfx.sprite.redrawBackground()
+    gfx.sprite.update()
 end
 
 -- Enable networking and load page automatically

@@ -28,12 +28,29 @@ local function cleanText(text)
         return nil
     end
 
+    local anchors = {}
+    local anchorIndex = 0
+    local function preserveAnchor(tag)
+        anchorIndex = anchorIndex + 1
+        anchors[anchorIndex] = tag
+        return string.format(" __ANCHOR_%d__ ", anchorIndex)
+    end
+
     local cleaned = text
         :gsub("\r\n", "\n")
         :gsub("\t", " ")
         :gsub("\n+", " ")
         :gsub("—", "-")
-        :gsub("<[^>]*>(.-)</.*>", "")
+
+    cleaned = cleaned:gsub("<%s*/?%s*[aA][^>]*>", preserveAnchor)
+    cleaned = cleaned:gsub("<[^>]+>", " ")
+    cleaned = cleaned:gsub("__ANCHOR_(%d+)__", function(id)
+        local tag = anchors[tonumber(id)]
+        if not tag then
+            return " "
+        end
+        return " " .. tag .. " "
+    end)
 
     cleaned = cleaned:gsub("&[#%w]+;", function(entity)
         if entityMap[entity] then
@@ -189,8 +206,6 @@ local function parseNPRArticle(html)
         for _, p in ipairs(paragraphs) do
             local htmlText = p:gettext()
             if htmlText then
-                htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
-                htmlText = htmlText:gsub("<[^>]+>", "")
                 local cleaned = cleanText(htmlText)
                 if cleaned then
                     addText(elements, cleaned)
@@ -274,7 +289,7 @@ local function parseCBCLiteArticle(html)
         if text and #text > 0 then
             addText(elements, text)
             metaSeen[node] = true
-            metaCount += 1
+            metaCount = metaCount + 1
         end
         if metaCount >= 2 then
             break
@@ -299,8 +314,6 @@ local function parseCBCLiteArticle(html)
             if not metaSeen[node] and not classAttr:match("embed") and not classAttr:match("related") then
                 local htmlText = node:gettext()
                 if htmlText then
-                    htmlText = htmlText:gsub("<a[^>]*>(.-)</a>", "%1")
-                    htmlText = htmlText:gsub("<[^>]+>", "")
                     local cleaned = cleanText(htmlText)
                     if cleaned and #cleaned > 0 then
                         addText(elements, cleaned)
