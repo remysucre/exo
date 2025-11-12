@@ -1,5 +1,7 @@
 # Exo Web Browser for the Playdate Console
 
+![exo browser demo](demo.gif)
+
 Follow [instructions](https://help.play.date/games/sideloading/) to upload `exo.pdx` to your device
  (the browser currenlty does not work in the simulator due to a [known bug](https://devforum.play.date/t/http-get-sees-data-only-after-request-completion/24115/4)).
 To build, run `pdc source exo`.
