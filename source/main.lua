@@ -518,10 +518,7 @@ function playdate.update()
             local previousURL = table.remove(historyStack)
             pageImage = nil
             navigatingBack = true
-            statusMessage = "Loading previous page..."
             pendingURL = previousURL
-        else
-            statusMessage = "No previous page"
         end
     end
 
@@ -531,7 +528,6 @@ function playdate.update()
             local targetURL = resolveURL(currentURL, hoveredButton.url)
             if targetURL then
                 pageImage = nil
-                statusMessage = "Loading..."
                 pendingURL = targetURL
                 print("Following link:", targetURL)
             end
