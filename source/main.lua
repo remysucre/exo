@@ -7,16 +7,17 @@ import "CoreLibs/ui"
 local gfx <const> = playdate.graphics
 local siteParsers = import "siteparsers"
 
+local screenWidth, screenHeight = 400, 240
+local cursorHalfHeight = 5
+local cursorWidth = 5
+
 -- State
 local currentURL = nil
 local currentContent = nil
-local screenWidth, screenHeight = 400, 240
 local statusMessage = "Connecting to WiFi..."
 local pendingURL = nil  -- URL to load in next update
-local cursorHalfHeight = 5
-local cursorWidth = 5
-local cursorY = cursorHalfHeight
 local viewportTop = 0
+local cursorY = cursorHalfHeight
 
 -- Button selection state (determined during render)
 local hoveredButton = nil
@@ -506,7 +507,7 @@ function playdate.update()
 
     -- Button controls
     if playdate.buttonJustPressed(playdate.kButtonB) then
-        if #historyStack > 0 then
+        if pageImage and #historyStack > 0 then
             local previousURL = table.remove(historyStack)
             pageImage = nil
             pendingURL = previousURL
