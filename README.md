@@ -1,4 +1,4 @@
-# Exo Web Browser for the Playdate Console
+# Exo Web Browser for Playdate
 
 ![exo browser demo](demo.gif)
 
