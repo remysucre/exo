@@ -35,7 +35,6 @@ local fetchError = nil
 local fetchURL = nil
 local fetchParser = nil
 local historyStack = {}
-local navigatingBack = false
 
 -- Rendering helpers
 local textFonts = {
@@ -471,12 +470,8 @@ function playdate.update()
                 preparePageImage(nil)
                 resetViewToTop()
             else
-                if currentURL and currentURL ~= fetchURL and not navigatingBack then
-                    table.insert(historyStack, currentURL)
-                end
                 currentContent = content
                 currentURL = fetchURL
-                navigatingBack = false
                 statusMessage = "Loaded " .. #content .. " elements"
                 preparePageImage(currentContent)
                 resetViewToTop()
@@ -501,7 +496,6 @@ function playdate.update()
         fetchURL = nil
         fetchParser = nil
         fetchError = nil
-        navigatingBack = false
     end
 
     renderContent()
@@ -517,8 +511,10 @@ function playdate.update()
         if #historyStack > 0 then
             local previousURL = table.remove(historyStack)
             pageImage = nil
-            navigatingBack = true
+            statusMessage = "Loading previous page..."
             pendingURL = previousURL
+        else
+            statusMessage = "No previous page"
         end
     end
 
@@ -527,7 +523,11 @@ function playdate.update()
         if hoveredButton and hoveredButton.url then
             local targetURL = resolveURL(currentURL, hoveredButton.url)
             if targetURL then
+                if currentURL then
+                    table.insert(historyStack, currentURL)
+                end
                 pageImage = nil
+                statusMessage = "Loading..."
                 pendingURL = targetURL
                 print("Following link:", targetURL)
             end
