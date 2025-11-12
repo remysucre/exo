@@ -11,14 +11,12 @@ local siteParsers = import "siteparsers"
 local currentURL = nil
 local currentContent = nil
 local screenWidth, screenHeight = 400, 240
-local scrollOffset = 0
 local statusMessage = "Connecting to WiFi..."
 local pendingURL = nil  -- URL to load in next update
-local cursorY = screenHeight * 0.5
 local cursorHalfHeight = 5
 local cursorWidth = 5
-local cursorMinY = cursorHalfHeight
-local cursorMaxY = screenHeight - cursorHalfHeight
+local cursorY = cursorHalfHeight
+local viewportTop = 0
 
 -- Button selection state (determined during render)
 local hoveredButton = nil
@@ -57,27 +55,32 @@ local contentPadding = 10
 local contentWidth = screenWidth - contentPadding * 2
 local paragraphSpacing = 4
 local buttonSpacing = 8
+cursorY = contentPadding + cursorHalfHeight
 
-local function clampScroll()
-    local viewportHeight = screenHeight
-    local maxOffset = math.max(0, pageHeight - viewportHeight)
-    if scrollOffset > maxOffset then
-        scrollOffset = maxOffset
-    end
-    if scrollOffset < 0 then
-        scrollOffset = 0
-    end
+local function updateViewportBounds(newTop)
+    local desiredTop = newTop or viewportTop
+    local maxTop = math.max(0, pageHeight - screenHeight)
+    viewportTop = math.max(0, math.min(desiredTop, maxTop))
 end
 
-local function scrollBy(amount)
-    if amount == 0 then
-        return 0
+local function getCursorLimits()
+    local minY = cursorHalfHeight
+    local maxY = cursorHalfHeight
+    if pageHeight and pageHeight > 0 then
+        maxY = math.max(cursorHalfHeight, pageHeight - cursorHalfHeight)
     end
+    return minY, maxY
+end
 
-    local previous = scrollOffset
-    scrollOffset += amount
-    clampScroll()
-    return scrollOffset - previous
+local function ensureCursorVisible()
+    local topBoundary = viewportTop + cursorHalfHeight
+    local bottomBoundary = viewportTop + screenHeight - cursorHalfHeight
+
+    if cursorY < topBoundary then
+        updateViewportBounds(cursorY - cursorHalfHeight)
+    elseif cursorY > bottomBoundary then
+        updateViewportBounds(cursorY + cursorHalfHeight - screenHeight)
+    end
 end
 
 local function moveCursor(delta)
@@ -85,22 +88,16 @@ local function moveCursor(delta)
         return
     end
 
-    local target = cursorY + delta
-    if target < cursorMinY then
-        local overshoot = cursorMinY - target
-        cursorY = cursorMinY
-        scrollBy(-overshoot)
-        return
-    end
+    local minY, maxY = getCursorLimits()
+    cursorY = math.max(minY, math.min(cursorY + delta, maxY))
+    ensureCursorVisible()
+end
 
-    if target > cursorMaxY then
-        local overshoot = target - cursorMaxY
-        cursorY = cursorMaxY
-        scrollBy(overshoot)
-        return
-    end
-
-    cursorY = target
+local function resetViewToTop()
+    updateViewportBounds(0)
+    local _, maxY = getCursorLimits()
+    cursorY = math.max(cursorHalfHeight, math.min(contentPadding + cursorHalfHeight, maxY))
+    ensureCursorVisible()
 end
 
 local function preparePageImage(elements)
@@ -190,8 +187,9 @@ local function drawButtonElement(label, x, y, isSelected)
     local width = gfx.drawText(label, x, y)
     gfx.setImageDrawMode(gfx.kDrawModeCopy)
 
-    gfx.drawLine(x, y + buttonHeight + selectionIndicatorHeight, x + width, y + buttonHeight + selectionIndicatorHeight)
-
+    if not isSelected then
+        gfx.drawLine(x, y + buttonHeight + selectionIndicatorHeight, x + width, y + buttonHeight + selectionIndicatorHeight)
+    end
 end
 
 local function resolveURL(base, href)
@@ -237,7 +235,7 @@ function loadURL(url)
     end
 
     statusMessage = "Loading: " .. url
-    scrollOffset = 0
+    resetViewToTop()
 
     -- Find matching site parser
     local matchedParser = nil
@@ -404,41 +402,6 @@ function fetchHTMLAsync(url)
     print("GET request queued successfully")
 end
 
-function renderContent()
-    gfx.clear()
-
-    if not pageImage then
-        gfx.drawText(statusMessage or "Loading...", contentPadding, contentPadding)
-        hoveredButton = nil
-        return
-    end
-
-    local drawOffset = math.floor(scrollOffset + 0.5)
-    pageImage:draw(0, -drawOffset)
-    hoveredButton = nil
-
-    for _, button in ipairs(pageButtons) do
-        local screenY = contentPadding + button.y - drawOffset
-        local buttonBottom = screenY + button.height
-
-        if buttonBottom < -20 then
-            goto continue
-        end
-
-        if screenY > screenHeight + 20 then
-            break
-        end
-
-        local isSelected = (cursorY >= screenY) and (cursorY <= buttonBottom)
-        drawButtonElement(button.label, contentPadding, screenY, isSelected)
-        if isSelected then
-            hoveredButton = button
-        end
-
-        ::continue::
-    end
-end
-
 local function drawCursor()
     gfx.setColor(gfx.kColorBlack)
     gfx.fillTriangle(
@@ -449,6 +412,35 @@ local function drawCursor()
         0,
         cursorY + cursorHalfHeight
     )
+end
+
+function renderContent()
+    gfx.setDrawOffset(0, 0)
+    gfx.clear()
+
+    if not pageImage then
+        gfx.drawText(statusMessage or "Loading...", contentPadding, contentPadding)
+        hoveredButton = nil
+        return
+    end
+
+    local drawOffset = math.floor(viewportTop + 0.5)
+    gfx.setDrawOffset(0, -drawOffset)
+    pageImage:draw(0, 0)
+    hoveredButton = nil
+
+    for _, button in ipairs(pageButtons) do
+        local buttonY = contentPadding + button.y
+        local buttonBottom = buttonY + button.height
+        local isSelected = (cursorY >= buttonY) and (cursorY <= buttonBottom)
+        drawButtonElement(button.label, contentPadding, buttonY, isSelected)
+        if isSelected then
+            hoveredButton = button
+        end
+    end
+
+    drawCursor()
+    gfx.setDrawOffset(0, 0)
 end
 
 function playdate.update()
@@ -477,6 +469,7 @@ function playdate.update()
                 statusMessage = "Error: " .. (parseErr or "Parse failed")
                 currentContent = nil
                 preparePageImage(nil)
+                resetViewToTop()
             else
                 if currentURL and currentURL ~= fetchURL and not navigatingBack then
                     table.insert(historyStack, currentURL)
@@ -485,8 +478,8 @@ function playdate.update()
                 currentURL = fetchURL
                 navigatingBack = false
                 statusMessage = "Loaded " .. #content .. " elements"
-                scrollOffset = 0
                 preparePageImage(currentContent)
+                resetViewToTop()
             end
         end
 
@@ -501,6 +494,7 @@ function playdate.update()
         statusMessage = "Error: " .. (fetchError or "Unknown error")
         currentContent = nil
         preparePageImage(nil)
+        resetViewToTop()
 
         -- Clean up
         fetchHTML = ""
@@ -511,7 +505,6 @@ function playdate.update()
     end
 
     renderContent()
-    drawCursor()
 
     -- Handle input
     local crankChange = playdate.getCrankChange()
