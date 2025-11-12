@@ -1,147 +1,50 @@
-# exo - A Web Browser for Playdate
+# An Exo Web Browser for the Playdate Console
 
-exo is a minimalist web browser for the Playdate console that uses a unique "exo web browser" architecture: instead of rendering arbitrary web pages, it uses a curated list of websites with CSS selector-based rules to extract and display only the content you want to see.
+To build, run `pdc source exo`.
 
-## Features
+Use the crank to move the cursor (left edge of screen), then click A to follow links and B to go back.
 
-- **Curated browsing**: Only supports websites with defined extraction rules
-- **CSS selector content extraction**: Precise control over what content is displayed
-- **Pure text display**: No images, links, or JavaScript - just readable content
-- **Monochrome optimized**: Designed for Playdate's 400x240 1-bit display
-- **Crank & button navigation**: Scroll with the crank or D-pad
-- **Pure Lua**: Easy to debug and modify, no compilation needed
+## What is An Exo Web Browser?
 
-## Architecture
+An exo web browser is designed for constrained devices.
+The [playdate console](https://play.date) is an example:
+ not only does the device have limited CPU, RAM, and storage,
+ control is also limited to a D-pad, two buttons, and a crank,
+ and the display is tiny and monochrome.
+As such, `exo` does not support arbitrary HTML pages.
+Instead, it relies on custom code to parse a curated
+ list of websites and transform them into
+ a structure that is easy to render.
+Think ad blockers, but instead of specifying what to block,
+ the custom code specifies what to show.
+[`source/siteparsers.lua`](source/siteparsers.lua) has some examples.
 
-exo is written entirely in Lua:
-- **UI & Rendering**: Playdate graphics API for monochrome display
-- **HTML Parsing**: lua-htmlparser (https://github.com/msva/lua-htmlparser)
-- **CSS Selectors**: Simple selector engine supporting tags, descendants, and multiple selectors
-- **HTTP Fetching**: Playdate's async networking API
+## Design Philosophy
+Simplicity is the guiding principle for many of `exo`'s design choices:
+- This is a pure Lua codebase with zero dependencies
+- There are no inline links, only plain text paragraphs and standalone links
+- Scrolling is solely controlled by the crank
+- Rendering follows [immediate mode](https://en.wikipedia.org/wiki/Immediate_mode_(computer_graphics)) with little optimization
 
-The CSS selector design preserves document order, so headers and paragraphs appear in the same order as the source HTML.
+The main motivation is to make the code hard to break and easy to maintain.
+To keep things as simple as possible, we are willing to sacrifice performance and features.
+For example, immediate mode rendering constantly redraws the screen,
+ but it greatly simplifies rendering logic.
+For another example, the D-pad could also be used for scrolling,
+ but we chose the crank as the only way to move the cursor.
+The rule of thumb is: we will avoid features and optimizations as long as
+ `exo` can be used without them.
 
-## Building
+## Acknowledgement
+`exo` uses [lua-htmlparser](https://github.com/msva/lua-htmlparser/tree/master) for parsing HTML,
+ and the Asheville font developed by Panic for Playdate,
+ with the `Asheville-Sans-14-Bolder` variant stolen from [Constellation Browser](https://particlestudios.itch.io/constellation-browser).
 
-### Prerequisites
+`exo` takes inspiration from the following work:
+- [Constellation Browser](https://particlestudios.itch.io/constellation-browser)
+- [Hopper](https://tkers.itch.io/hopper)
+- [gemtext](https://geminiprotocol.net/docs/gemtext-specification.gmi)
+- [A Plea for Lean Software](https://cr.yp.to/bib/1995/wirth.pdf)
 
-1. **Playdate SDK**: Install from https://play.date/dev/
-2. Set `PLAYDATE_SDK_PATH` environment variable
-
-### Build Steps
-
-```bash
-# Set Playdate SDK path
-export PLAYDATE_SDK_PATH=/path/to/PlaydateSDK
-
-# Create .pdx bundle
-pdc source exo.pdx
-
-# Run in Simulator
-open exo.pdx  # macOS
-# OR
-PlaydateSimulator exo.pdx
-```
-
-That's it! No compilation, no build tools required - just pure Lua.
-
-## Usage
-
-### Current Test Mode
-
-- Press **A button** to fetch from remy.wang
-
-Controls:
-- **Crank**: Scroll smoothly through content
-- **D-pad Up/Down**: Scroll by page increments
-
-### Adding Sites
-
-Edit `source/sites.lua` to add support for new websites:
-
-```lua
-{
-  name = "Site Name",
-  pattern = "^https://example%.com/articles/.*",
-  selector = {"article h1", "article h2", "article p"}
-}
-```
-
-**Pattern matching rules:**
-- Patterns are Lua string patterns (similar to regex)
-- Use `^` and `$` for exact matching
-- Use `%.` to escape literal dots
-- Use `.*` as wildcard
-- More specific patterns should come first
-
-**CSS Selector guidelines:**
-- **Basic selectors**: `h1`, `.class`, `#id`, `[attribute]`
-- **Combinators**: `article p` (descendant), `div > p` (child)
-- **Pseudo-classes**: `:not(selector)`
-- **Attribute matching**: `[href^='https']`, `[class*='article']`
-- Full jQuery-style selector support via lua-htmlparser
-- Each selector in the array is evaluated independently
-- Results automatically preserve document order
-
-## Supported Sites
-
-Currently configured:
-- **Example.com**: Generic test site
-- **Christian Science Monitor Text Edition**: Front page and articles (requires network access)
-
-## Project Structure
-
-```
-exo/
-├── source/
-│   ├── main.lua           # Entry point and main browser logic
-│   ├── sites.lua          # Site configuration rules
-│   ├── htmlparser.lua     # HTML parser (lua-htmlparser)
-│   ├── ElementNode.lua    # DOM node implementation
-│   ├── voidelements.lua   # HTML void elements list
-│   └── pdxinfo            # Playdate metadata
-├── CLAUDE.md              # Development documentation
-└── README.md              # This file
-```
-
-## Development
-
-### Testing
-
-1. Test in Simulator first (faster iteration)
-2. Use `print()` for debugging (output appears in Simulator console)
-3. Edit Lua files directly - just rebuild with `pdc source exo.pdx`
-4. Test on actual hardware periodically
-
-### Debugging
-
-The Simulator console shows:
-- Print statements from your code
-- Network activity (requests, headers, data received)
-- Errors and stack traces
-
-### Adding Features
-
-Future enhancements could include:
-- URL entry UI (keyboard input)
-- Bookmark management
-- History tracking
-- Better error handling and retry logic
-- Support for more sites (full jQuery-style selectors already supported!)
-
-## Technology
-
-- **Pure Lua**: All code in Lua for easy debugging
-- **lua-htmlparser**: Pure Lua HTML parser
-- **Playdate SDK**: Graphics, input, and networking APIs
-- **No compilation**: Edit and reload instantly
-
-## License
-
-This project is open source. Feel free to use and modify for your own purposes.
-
-## Resources
-
-- Playdate SDK: https://sdk.play.date/
-- lua-htmlparser: https://github.com/msva/lua-htmlparser
-- CSS Selectors: https://www.w3schools.com/cssref/css_selectors.php
+The name `exo` comes from the concept of [exocompilation](https://dl.acm.org/doi/10.1145/3519939.3523446),
+ a compiler technique to generate efficient code with a little help from the programmer.
