@@ -39,8 +39,7 @@ The rule of thumb is: we will avoid features and optimizations as long as
 `exo` uses [lua-htmlparser](https://github.com/msva/lua-htmlparser/tree/master) for parsing HTML,
  and the Asheville font developed by Panic for Playdate,
  with the `Asheville-Sans-14-Bolder` variant stolen from [Constellation Browser](https://particlestudios.itch.io/constellation-browser).
-
-`exo` takes inspiration from the following work:
+ `exo` takes inspiration from the following work:
 - [Constellation Browser](https://particlestudios.itch.io/constellation-browser)
 - [Hopper](https://tkers.itch.io/hopper)
 - [gemtext](https://geminiprotocol.net/docs/gemtext-specification.gmi)
