@@ -161,22 +161,20 @@ local function preparePageImage(elements)
     pageHeight = imageHeight
 end
 
-local selectionIndicatorHeight = 2
-local linkHighlightPadding = 2
+local linkPadding = 2
 
 local function drawButtonElement(label, x, y, isSelected)
     gfx.setFont(textFonts.regular)
 
     local textWidth, textHeight = gfx.getTextSize(label)
-    local buttonHeight = textHeight or textLineHeight
 
     if isSelected then
         gfx.setColor(gfx.kColorBlack)
         gfx.fillRect(
-            x - linkHighlightPadding,
-            y - linkHighlightPadding,
-            (textWidth or 0) + linkHighlightPadding * 2,
-            buttonHeight + linkHighlightPadding * 2
+            x - linkPadding,
+            y - linkPadding,
+            textWidth  + linkPadding * 2,
+            textHeight + linkPadding * 2
         )
         gfx.setImageDrawMode(gfx.kDrawModeFillWhite)
     else
@@ -187,7 +185,7 @@ local function drawButtonElement(label, x, y, isSelected)
     gfx.setImageDrawMode(gfx.kDrawModeCopy)
 
     if not isSelected then
-        gfx.drawLine(x, y + buttonHeight + selectionIndicatorHeight, x + width, y + buttonHeight + selectionIndicatorHeight)
+        gfx.drawLine(x, y + textHeight + linkPadding, x + width, y + textHeight + linkPadding)
     end
 end
 
