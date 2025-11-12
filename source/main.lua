@@ -510,6 +510,7 @@ function playdate.update()
     if playdate.buttonJustPressed(playdate.kButtonB) then
         if #historyStack > 0 then
             local previousURL = table.remove(historyStack)
+            pageImage = nil
             pendingURL = previousURL
         end
     end
@@ -522,6 +523,7 @@ function playdate.update()
                 if currentURL then
                     table.insert(historyStack, currentURL)
                 end
+                pageImage = nil
                 pendingURL = targetURL
                 print("Following link:", targetURL)
             end
