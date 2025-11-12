@@ -38,6 +38,8 @@ For another example, the D-pad could also be used for scrolling,
  but we chose the crank as the only way to move the cursor.
 The rule of thumb is: we will avoid features and optimizations as long as
  `exo` can be used without them.
+A side effect of the simple code is that `exo` compiles to a tiny binary
+ (59.3KB at the time of writing).
 
 ## Acknowledgement
 `exo` uses [lua-htmlparser](https://github.com/msva/lua-htmlparser/tree/master) for parsing HTML,
