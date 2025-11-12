@@ -11,7 +11,7 @@ Use the crank to move the cursor (left edge of screen), then click A to follow l
 ## What is an Exo Web Browser?
 
 An exo web browser is designed for constrained devices.
-The [playdate console](https://play.date) is an example:
+The [playdate console](https://play.date) is a prime example:
  not only does the device have limited CPU, RAM, and storage,
  control is also limited to a D-pad, two buttons, and a crank,
  and the display is tiny and monochrome.
