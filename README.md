@@ -7,7 +7,7 @@ Use the crank to move the cursor (left edge of screen), then click A to follow l
 ## What is an Exo Web Browser?
 
 An exo web browser is designed for constrained devices.
-The [playdate console](https://play.date) is a prime example:
+The [playdate console](https://play.date) is an example:
  not only does the device have limited CPU, RAM, and storage,
  control is also limited to a D-pad, two buttons, and a crank,
  and the display is tiny and monochrome.
@@ -48,3 +48,5 @@ The rule of thumb is: we will avoid features and optimizations as long as
 
 The name `exo` comes from the concept of [exocompilation](https://dl.acm.org/doi/10.1145/3519939.3523446),
  a compiler technique to generate efficient code with a little help from the programmer.
+
+Of course, `exo` would not be possible without the [Playdate console](https://play.date) and [SDK](https://play.date/dev/) by Panic.
