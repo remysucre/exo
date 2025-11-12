@@ -46,7 +46,7 @@ The rule of thumb is: we will avoid features and optimizations as long as
  `exo` takes inspiration from the following work:
 - [Constellation Browser](https://particlestudios.itch.io/constellation-browser)
 - [Hopper](https://tkers.itch.io/hopper)
-- [gemtext](https://geminiprotocol.net/docs/gemtext-specification.gmi)
+- [Gemini hypertext format](https://geminiprotocol.net/docs/gemtext-specification.gmi)
 - [A Plea for Lean Software](https://cr.yp.to/bib/1995/wirth.pdf)
 
 The name `exo` comes from the concept of [exocompilation](https://dl.acm.org/doi/10.1145/3519939.3523446),
