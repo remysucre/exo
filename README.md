@@ -1,4 +1,4 @@
-# An Exo Web Browser for the Playdate Console
+# Exo Web Browser for the Playdate Console
 
 To build, run `pdc source exo`.
 
