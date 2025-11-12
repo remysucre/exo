@@ -4,7 +4,7 @@ To build, run `pdc source exo`.
 
 Use the crank to move the cursor (left edge of screen), then click A to follow links and B to go back.
 
-## What is An Exo Web Browser?
+## What is an Exo Web Browser?
 
 An exo web browser is designed for constrained devices.
 The [playdate console](https://play.date) is an example:
