@@ -285,7 +285,7 @@ function fetchHTMLAsync(url)
     print("Server:", server, "Path:", path, "SSL:", useSSL)
 
     -- Create HTTP connection
-    fetchConn = playdate.network.http.new(server, nil, useSSL, "exo browser needs to fetch web content")
+    fetchConn = playdate.network.http.new(server, useSSL, "exo browser needs to fetch web content")
     if not fetchConn then
         fetchState = "error"
         fetchError = "Failed to create connection"
@@ -540,7 +540,7 @@ playdate.network.setEnabled(true, function(err)
         print("Network enabled")
         networkReady = true
         -- Load page immediately
-        pendingURL = "https://www.cbc.ca/lite/news?sort=latest"
+        pendingURL = "https://text.npr.org/"
         print("Auto-loading URL:", pendingURL)
     end
 end)
